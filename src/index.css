@@ -1,96 +1,124 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Alpine Winter Color Palette */
+    --background: 210 30% 98%;
+    --foreground: 215 50% 15%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 210 40% 100%;
+    --card-foreground: 215 50% 15%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 210 40% 100%;
+    --popover-foreground: 215 50% 15%;
 
-    --primary: 222.2 47.4% 11.2%;
+    /* Deep mountain blue */
+    --primary: 215 70% 25%;
     --primary-foreground: 210 40% 98%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Light snow gray */
+    --secondary: 210 25% 93%;
+    --secondary-foreground: 215 50% 20%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 210 20% 94%;
+    --muted-foreground: 215 20% 45%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Warm sunset amber accent */
+    --accent: 32 95% 55%;
+    --accent-foreground: 215 50% 10%;
 
-    --destructive: 0 84.2% 60.2%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 210 30% 88%;
+    --input: 210 30% 88%;
+    --ring: 215 70% 35%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
+
+    /* Custom Alpine Colors */
+    --alpine-deep: 215 75% 20%;
+    --alpine-sky: 200 80% 65%;
+    --alpine-frost: 200 30% 95%;
+    --alpine-snow: 210 40% 99%;
+    --alpine-amber: 32 95% 55%;
+    --alpine-sunset: 15 85% 55%;
+    
+    /* Snow condition colors */
+    --snow-powder: 200 90% 60%;
+    --snow-fresh: 180 70% 55%;
+    --snow-packed: 210 30% 70%;
+    --snow-icy: 195 60% 75%;
+    
+    /* Avalanche warning colors */
+    --avalanche-low: 142 70% 45%;
+    --avalanche-moderate: 48 95% 50%;
+    --avalanche-considerable: 32 95% 50%;
+    --avalanche-high: 15 90% 55%;
+    --avalanche-extreme: 0 85% 50%;
+
+    /* Status colors */
+    --status-open: 142 70% 45%;
+    --status-closed: 0 72% 51%;
+    --status-partial: 48 95% 50%;
+
+    /* Gradients */
+    --gradient-alpine: linear-gradient(135deg, hsl(215 75% 20%) 0%, hsl(200 80% 35%) 100%);
+    --gradient-snow: linear-gradient(180deg, hsl(210 40% 99%) 0%, hsl(210 30% 94%) 100%);
+    --gradient-sunset: linear-gradient(135deg, hsl(32 95% 55%) 0%, hsl(15 85% 55%) 100%);
+    --gradient-frost: linear-gradient(180deg, hsl(200 30% 97%) 0%, hsl(210 25% 93%) 100%);
+
+    /* Shadows */
+    --shadow-card: 0 4px 20px -4px hsl(215 50% 15% / 0.08);
+    --shadow-card-hover: 0 8px 30px -4px hsl(215 50% 15% / 0.12);
+    --shadow-glow: 0 0 40px hsl(200 80% 65% / 0.2);
 
     --sidebar-background: 0 0% 98%;
-
     --sidebar-foreground: 240 5.3% 26.1%;
-
     --sidebar-primary: 240 5.9% 10%;
-
     --sidebar-primary-foreground: 0 0% 98%;
-
     --sidebar-accent: 240 4.8% 95.9%;
-
     --sidebar-accent-foreground: 240 5.9% 10%;
-
     --sidebar-border: 220 13% 91%;
-
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 215 50% 8%;
+    --foreground: 210 40% 95%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 215 45% 12%;
+    --card-foreground: 210 40% 95%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 215 45% 12%;
+    --popover-foreground: 210 40% 95%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 200 80% 65%;
+    --primary-foreground: 215 50% 10%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 215 40% 18%;
+    --secondary-foreground: 210 40% 90%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 215 35% 20%;
+    --muted-foreground: 210 20% 60%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 32 95% 55%;
+    --accent-foreground: 215 50% 10%;
 
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --border: 215 35% 20%;
+    --input: 215 35% 20%;
+    --ring: 200 80% 65%;
+
+    --alpine-deep: 200 80% 65%;
+    --alpine-frost: 215 40% 15%;
+    --alpine-snow: 215 45% 12%;
   }
 }
 
@@ -100,6 +128,90 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-outfit antialiased;
   }
+}
+
+@layer utilities {
+  .text-gradient-alpine {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-alpine);
+  }
+
+  .text-gradient-sunset {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-sunset);
+  }
+
+  .bg-gradient-alpine {
+    background-image: var(--gradient-alpine);
+  }
+
+  .bg-gradient-snow {
+    background-image: var(--gradient-snow);
+  }
+
+  .bg-gradient-frost {
+    background-image: var(--gradient-frost);
+  }
+
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .shadow-card-hover {
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  .shadow-glow {
+    box-shadow: var(--shadow-glow);
+  }
+}
+
+/* Snowfall animation */
+@keyframes snowfall {
+  0% {
+    transform: translateY(-10px) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-snowfall {
+  animation: snowfall linear infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
 }
