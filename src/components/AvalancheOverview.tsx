@@ -4,10 +4,11 @@ import { AlertTriangle } from 'lucide-react';
 
 interface AvalancheOverviewProps {
   resorts: SkiResort[];
+  globalDistribution?: Record<string, number>;
 }
 
-export const AvalancheOverview = ({ resorts }: AvalancheOverviewProps) => {
-  const avalancheCounts = resorts.reduce((acc, resort) => {
+export const AvalancheOverview = ({ resorts, globalDistribution }: AvalancheOverviewProps) => {
+  const avalancheCounts = globalDistribution || resorts.reduce((acc, resort) => {
     acc[resort.avalancheWarning] = (acc[resort.avalancheWarning] || 0) + 1;
     return acc;
   }, {} as Record<number, number>);

@@ -5,7 +5,13 @@ import { SkiResort } from '@/data/mockResorts';
 interface ResortResponse {
   totalCount: number;
   openCount: number;
+  avgSnowMountain: number;
+  totalNewSnow: number;
+  totalOpenKm: number;
   resorts: SkiResort[];
+  topSnowResorts: SkiResort[];
+  topNewSnowResorts: SkiResort[];
+  avalancheDistribution: Record<string, number>;
 }
 import { Header } from '@/components/Header';
 import { DashboardStats } from '@/components/DashboardStats';
@@ -17,11 +23,12 @@ import { AvalancheOverview } from '@/components/AvalancheOverview';
 
 const Index = () => {
   const [sortBy, setSortBy] = useState<SortOption>('snowMountain');
+  const [limit, setLimit] = useState(50);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['resorts'],
+    queryKey: ['resorts', sortBy, limit],
     queryFn: async () => {
-      const response = await fetch('/api/resorts');
+      const response = await fetch(`/api/resorts?sort=${sortBy}&limit=${limit}`);
       if (!response.ok) {
         throw new Error('Network response was not ok');
       }
@@ -71,14 +78,17 @@ const Index = () => {
             resorts={resorts} 
             totalResortsCount={totalCount}
             openResortsCount={openCount}
+            avgSnowMountain={data?.avgSnowMountain}
+            totalNewSnow={data?.totalNewSnow}
+            totalOpenKm={data?.totalOpenKm}
           />
         </section>
 
         {/* Charts Row */}
         <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in" style={{ animationDelay: '100ms' }}>
-          <TopResortsChart resorts={resorts} />
-          <NewSnowChart resorts={resorts} />
-          <AvalancheOverview resorts={resorts} />
+          <TopResortsChart resorts={data?.topSnowResorts || resorts} />
+          <NewSnowChart resorts={data?.topNewSnowResorts || resorts} />
+          <AvalancheOverview resorts={resorts} globalDistribution={data?.avalancheDistribution} />
         </section>
 
         {/* Resort Cards */}
@@ -99,6 +109,18 @@ const Index = () => {
               </div>
             ))}
           </div>
+
+          {resorts.length < totalCount && (
+            <div className="flex justify-center mt-12">
+               <button 
+                 onClick={() => setLimit(prev => prev + 50)}
+                 disabled={isLoading}
+                 className="px-6 py-3 rounded-full bg-primary text-primary-foreground font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+               >
+                 {isLoading ? 'Lade Daten...' : 'Mehr anzeigen'}
+               </button>
+            </div>
+          )}
         </section>
       </main>
 

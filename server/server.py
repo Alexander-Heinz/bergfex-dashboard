@@ -174,17 +174,29 @@ def map_avalanche(warning_str):
     
     return level, text
 
-@app.get("/api/resorts", response_model=List[SkiResort])
-async def get_resorts():
+class ResortResponse(BaseModel):
+    totalCount: int
+    openCount: int
+    avgSnowMountain: float
+    totalNewSnow: float
+    totalOpenKm: float
+    resorts: List[SkiResort]
+    topSnowResorts: List[SkiResort]
+    topNewSnowResorts: List[SkiResort]
+    avalancheDistribution: dict
+
+
+@app.get("/api/resorts", response_model=ResortResponse)
+async def get_resorts(
+    sort: str = "slopesOpenKm",
+    limit: int = 50,
+    offset: int = 0
+):
+    # Use QUALIFY to get the latest snapshot for each resort (deduping within the same day)
     query = f"""
-        WITH latest_date AS (
-            SELECT MAX(DATE(scraped_at)) as max_dt
-            FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
-        )
-        SELECT t.*
-        FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}` t
-        CROSS JOIN latest_date ld
-        WHERE DATE(t.scraped_at) = ld.max_dt
+        SELECT *
+        FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY resort_name ORDER BY scraped_at DESC) = 1
     """
     
     try:
@@ -207,6 +219,8 @@ async def get_resorts():
             area_url = row.area_url or ""
             full_url = f"{BASE_BERG_URL}{area_url}" if area_url.startswith("/") else area_url
             
+            slopes_open_km = float(parse_val(getattr(row, 'slopes_open_km', 0)))
+            
             resorts.append({
                 "id": str(i + 1),
                 "name": row.resort_name or "Unknown Resort",
@@ -222,7 +236,7 @@ async def get_resorts():
                 "avalancheText": avalanche_text,
                 "liftsOpen": row.lifts_open_count or 0,
                 "liftsTotal": row.lifts_total_count or 0,
-                "slopesOpenKm": float(parse_val(getattr(row, 'slopes_open_km', 0))),
+                "slopesOpenKm": slopes_open_km,
                 "slopesTotalKm": float(parse_val(getattr(row, 'slopes_total_km', 0))),
                 "slopesOpen": parse_val(getattr(row, 'slopes_open_count', 0)),
                 "slopesTotal": parse_val(getattr(row, 'slopes_total_count', 0)),
@@ -232,7 +246,65 @@ async def get_resorts():
                 "url": full_url
             })
             
-        return resorts
+        # Calculate totals before limiting
+        total_count = len(resorts)
+        open_count = sum(1 for r in resorts if r["status"] == "Geöffnet" or r["status"] == "Teilweise geöffnet")
+        
+        # Calculate Global Aggregates (regardless of filter/sort)
+        if total_count > 0:
+            avg_snow_mountain = sum(r["snowMountain"] for r in resorts) / total_count
+        else:
+            avg_snow_mountain = 0
+            
+        total_new_snow = sum(r["newSnow"] for r in resorts)
+        total_open_km = sum(r["slopesOpenKm"] for r in resorts)
+
+        # Get top lists for charts (from full dataset)
+        top_snow = sorted(resorts, key=lambda x: x["snowMountain"], reverse=True)[:5]
+        top_new_snow = sorted(resorts, key=lambda x: x["newSnow"], reverse=True)[:5]
+        
+        # Calculate Avalanche Distribution (Full Dataset)
+        avalanche_dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        for r in resorts:
+            lvl = r["avalancheWarning"]
+            if 1 <= lvl <= 5:
+                avalanche_dist[lvl] = avalanche_dist.get(lvl, 0) + 1
+
+        # Determine sort key and reverse flag based on sort parameter
+        # Default: slopesOpenKm desc
+        key_func = lambda x: x["slopesOpenKm"]
+        reverse = True
+        
+        if sort == "snowMountain":
+            key_func = lambda x: x["snowMountain"]
+            reverse = True
+        elif sort == "newSnow":
+            key_func = lambda x: x["newSnow"]
+            reverse = True
+        elif sort == "liftsOpen":
+            key_func = lambda x: x["liftsOpen"]
+            reverse = True
+        elif sort == "name":
+            key_func = lambda x: x["name"].lower()
+            reverse = False # Alphabetical ascending
+            
+        resorts.sort(key=key_func, reverse=reverse)
+        
+        # Apply Pagination
+        resorts_slice = resorts[offset : offset + limit]
+        
+        return {
+            "totalCount": total_count,
+            "openCount": open_count,
+            "avgSnowMountain": round(avg_snow_mountain),
+            "totalNewSnow": total_new_snow,
+            "totalOpenKm": round(total_open_km, 1),
+            "avalancheDistribution": avalanche_dist,
+            "resorts": resorts_slice,
+            "topSnowResorts": top_snow,
+            "topNewSnowResorts": top_new_snow
+        }
+        
     except Exception as e:
         print(f"Error fetching data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
