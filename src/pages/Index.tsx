@@ -15,7 +15,7 @@ const Index = () => {
   const { data: resorts = [], isLoading, error } = useQuery({
     queryKey: ['resorts'],
     queryFn: async () => {
-      const response = await fetch('http://localhost:8000/api/resorts');
+      const response = await fetch('/api/resorts');
       if (!response.ok) {
         throw new Error('Network response was not ok');
       }
