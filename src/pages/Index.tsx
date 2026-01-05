@@ -1,6 +1,12 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SkiResort } from '@/data/mockResorts';
+
+interface ResortResponse {
+  totalCount: number;
+  openCount: number;
+  resorts: SkiResort[];
+}
 import { Header } from '@/components/Header';
 import { DashboardStats } from '@/components/DashboardStats';
 import { ResortCard } from '@/components/ResortCard';
@@ -12,16 +18,20 @@ import { AvalancheOverview } from '@/components/AvalancheOverview';
 const Index = () => {
   const [sortBy, setSortBy] = useState<SortOption>('snowMountain');
 
-  const { data: resorts = [], isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['resorts'],
     queryFn: async () => {
       const response = await fetch('/api/resorts');
       if (!response.ok) {
         throw new Error('Network response was not ok');
       }
-      return response.json() as Promise<SkiResort[]>;
+      return response.json() as Promise<ResortResponse>;
     },
   });
+
+  const resorts = data?.resorts || [];
+  const totalCount = data?.totalCount || 0;
+  const openCount = data?.openCount || 0;
 
   const sortedResorts = useMemo(() => {
     const sorted = [...resorts].sort((a, b) => {
@@ -52,12 +62,16 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header resortCount={resorts.length} latestDate={latestDate} />
+      <Header resortCount={openCount} latestDate={latestDate} />
 
       <main className="container mx-auto px-4 py-8 space-y-8">
         {/* Stats Overview */}
         <section className="animate-fade-in">
-          <DashboardStats resorts={resorts} />
+          <DashboardStats 
+            resorts={resorts} 
+            totalResortsCount={totalCount}
+            openResortsCount={openCount}
+          />
         </section>
 
         {/* Charts Row */}
@@ -70,7 +84,7 @@ const Index = () => {
         {/* Resort Cards */}
         <section className="animate-fade-in" style={{ animationDelay: '200ms' }}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <h2 className="text-2xl font-bold text-foreground">Alle Skigebiete ({resorts.length})</h2>
+            <h2 className="text-2xl font-bold text-foreground">Alle Skigebiete (zeige {resorts.length} von {totalCount})</h2>
             <SortControls currentSort={sortBy} onSortChange={setSortBy} />
           </div>
 

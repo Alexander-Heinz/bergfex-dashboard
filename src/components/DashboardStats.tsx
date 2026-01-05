@@ -10,21 +10,26 @@ import { Card } from './ui/card';
 
 interface DashboardStatsProps {
   resorts: SkiResort[];
+  totalResortsCount?: number;
+  openResortsCount?: number;
 }
 
-export const DashboardStats = ({ resorts }: DashboardStatsProps) => {
-  const openResorts = resorts.filter(r => r.status === 'Geöffnet').length;
-  const totalResorts = resorts.length;
-  const avgSnowMountain = Math.round(
+export const DashboardStats = ({ resorts, totalResortsCount, openResortsCount }: DashboardStatsProps) => {
+  // Use passed counts if available, otherwise fallback to list length (legacy behavior)
+  const displayOpenCount = openResortsCount ?? resorts.filter(r => r.status === 'Geöffnet').length;
+  const displayTotalCount = totalResortsCount ?? resorts.length;
+
+  const avgSnowMountain = resorts.length > 0 ? Math.round(
     resorts.reduce((acc, r) => acc + r.snowMountain, 0) / resorts.length
-  );
+  ) : 0;
+  
   const totalNewSnow = resorts.reduce((acc, r) => acc + r.newSnow, 0);
   const totalOpenKm = resorts.reduce((acc, r) => acc + r.slopesOpenKm, 0).toFixed(1);
 
   const stats = [
     {
       label: 'Geöffnete Gebiete',
-      value: `${openResorts}/${totalResorts}`,
+      value: `${displayOpenCount}/${displayTotalCount}`,
       icon: CheckCircle2,
       color: 'text-status-open',
       bgColor: 'bg-status-open/10',
