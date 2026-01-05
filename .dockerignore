@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.venv
+__pycache__
+.env
+.DS_Store
+coverage
+tests

@@ -20,7 +20,7 @@ export const AvalancheOverview = ({ resorts }: AvalancheOverviewProps) => {
     { level: 5, label: 'Sehr groß', color: 'bg-avalanche-extreme' },
   ];
 
-  const total = resorts.length;
+  const total = levels.reduce((sum, { level }) => sum + (avalancheCounts[level] || 0), 0);
 
   return (
     <Card className="p-5 bg-card border-border shadow-card">

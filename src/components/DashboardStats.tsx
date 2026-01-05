@@ -19,7 +19,7 @@ export const DashboardStats = ({ resorts }: DashboardStatsProps) => {
     resorts.reduce((acc, r) => acc + r.snowMountain, 0) / resorts.length
   );
   const totalNewSnow = resorts.reduce((acc, r) => acc + r.newSnow, 0);
-  const totalOpenKm = resorts.reduce((acc, r) => acc + r.slopesOpenKm, 0);
+  const totalOpenKm = resorts.reduce((acc, r) => acc + r.slopesOpenKm, 0).toFixed(1);
 
   const stats = [
     {

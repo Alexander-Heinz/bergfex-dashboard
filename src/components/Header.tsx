@@ -1,6 +1,17 @@
 import { Mountain, MapPin, Thermometer } from 'lucide-react';
+import { format } from 'date-fns';
+import { de } from 'date-fns/locale';
 
-export const Header = () => {
+interface HeaderProps {
+  resortCount: number;
+  latestDate: string;
+}
+
+export const Header = ({ resortCount, latestDate }: HeaderProps) => {
+  const formattedDate = latestDate 
+    ? format(new Date(latestDate), 'MMMM yyyy', { locale: de })
+    : format(new Date(), 'MMMM yyyy', { locale: de });
+
   return (
     <header className="relative overflow-hidden bg-gradient-alpine min-h-[200px] md:min-h-[240px]">
       {/* Background layers for depth */}
@@ -33,18 +44,18 @@ export const Header = () => {
           
           {/* Subtitle */}
           <p className="text-primary-foreground/90 mt-2 text-sm md:text-lg font-medium max-w-md">
-            Live Schneebericht für Skigebiete in Deutschland & Österreich
+            Live Schneebericht für Skigebiete in den Alpen
           </p>
 
           {/* Quick stats pills */}
           <div className="flex flex-wrap items-center justify-center gap-3 mt-5">
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 text-primary-foreground text-xs md:text-sm">
               <MapPin className="w-3.5 h-3.5" />
-              <span>10 Skigebiete</span>
+              <span>{resortCount} Skigebiete</span>
             </div>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 text-primary-foreground text-xs md:text-sm">
               <Thermometer className="w-3.5 h-3.5" />
-              <span>Aktuell: Dezember 2024</span>
+              <span>Aktuell: {formattedDate}</span>
             </div>
           </div>
         </div>
@@ -103,3 +114,4 @@ export const Header = () => {
     </header>
   );
 };
+

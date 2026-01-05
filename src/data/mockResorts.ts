@@ -2,14 +2,14 @@ export interface SkiResort {
   id: string;
   name: string;
   region: string;
-  country: 'AT' | 'DE';
+  country: string;
   status: 'Geöffnet' | 'Geschlossen' | 'Teilweise geöffnet';
   snowValley: number;
   snowMountain: number;
   newSnow: number;
-  snowCondition: 'Pulver' | 'Firn' | 'Sulz' | 'Kunstschnee' | 'Griffig' | 'Hart';
+  snowCondition: string;
   lastSnowfall: string;
-  avalancheWarning: 1 | 2 | 3 | 4 | 5;
+  avalancheWarning: number;
   avalancheText: string;
   liftsOpen: number;
   liftsTotal: number;
@@ -17,12 +17,13 @@ export interface SkiResort {
   slopesTotalKm: number;
   slopesOpen: number;
   slopesTotal: number;
-  slopeCondition: 'Sehr gut' | 'Gut' | 'Mäßig' | 'Schlecht';
+  slopeCondition: string;
   lastUpdate: string;
   altitude: {
     min: number;
     max: number;
   };
+  url: string;
 }
 
 export const mockResorts: SkiResort[] = [
@@ -48,6 +49,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Sehr gut',
     lastUpdate: '2024-12-18 08:30:00',
     altitude: { min: 1304, max: 2811 },
+    url: 'https://www.bergfex.at/st-anton-am-arlberg/',
   },
   {
     id: '2',
@@ -71,6 +73,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Gut',
     lastUpdate: '2024-12-18 07:45:00',
     altitude: { min: 800, max: 2000 },
+    url: 'https://www.bergfex.at/kitzbuehel/',
   },
   {
     id: '3',
@@ -94,6 +97,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Sehr gut',
     lastUpdate: '2024-12-18 08:00:00',
     altitude: { min: 1350, max: 3340 },
+    url: 'https://www.bergfex.at/soelden/',
   },
   {
     id: '4',
@@ -117,6 +121,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Sehr gut',
     lastUpdate: '2024-12-18 08:15:00',
     altitude: { min: 1400, max: 2872 },
+    url: 'https://www.bergfex.at/ischgl/',
   },
   {
     id: '5',
@@ -140,6 +145,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Gut',
     lastUpdate: '2024-12-18 07:30:00',
     altitude: { min: 828, max: 2224 },
+    url: 'https://www.bergfex.at/oberstdorf-kleinwalsertal/',
   },
   {
     id: '6',
@@ -163,6 +169,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Mäßig',
     lastUpdate: '2024-12-18 08:00:00',
     altitude: { min: 708, max: 2720 },
+    url: 'https://www.bergfex.at/garmisch-partenkirchen/',
   },
   {
     id: '7',
@@ -186,6 +193,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Sehr gut',
     lastUpdate: '2024-12-18 08:20:00',
     altitude: { min: 757, max: 3029 },
+    url: 'https://www.bergfex.at/zell-am-see-kaprun/',
   },
   {
     id: '8',
@@ -209,6 +217,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Gut',
     lastUpdate: '2024-12-18 07:50:00',
     altitude: { min: 630, max: 2500 },
+    url: 'https://www.bergfex.at/mayrhofen/',
   },
   {
     id: '9',
@@ -232,6 +241,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Sehr gut',
     lastUpdate: '2024-12-18 08:25:00',
     altitude: { min: 1450, max: 2811 },
+    url: 'https://www.bergfex.at/lech-zuers/',
   },
   {
     id: '10',
@@ -255,6 +265,7 @@ export const mockResorts: SkiResort[] = [
     slopeCondition: 'Sehr gut',
     lastUpdate: '2024-12-18 08:10:00',
     altitude: { min: 1750, max: 3210 },
+    url: 'https://www.bergfex.at/stubaier-gletscher/',
   },
 ];
 

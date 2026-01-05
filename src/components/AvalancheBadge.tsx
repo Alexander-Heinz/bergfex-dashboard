@@ -2,7 +2,7 @@ import { AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface AvalancheBadgeProps {
-  level: 1 | 2 | 3 | 4 | 5;
+  level: number;
   text: string;
   compact?: boolean;
 }
@@ -21,9 +21,17 @@ export const AvalancheBadge = ({ level, text, compact = false }: AvalancheBadgeP
       case 5:
         return 'bg-avalanche-extreme/15 text-avalanche-extreme border-avalanche-extreme/30';
       default:
-        return 'bg-muted text-muted-foreground';
+        return 'bg-muted text-muted-foreground border-muted';
     }
   };
+
+  if (level === 0 || text === "-") {
+    return (
+      <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-muted/10 text-muted-foreground border-muted/30')}>
+        <span className="text-xs font-medium">Keine Meldung</span>
+      </div>
+    );
+  }
 
   if (compact) {
     return (

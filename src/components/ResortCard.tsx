@@ -55,7 +55,7 @@ export const ResortCard = ({ resort, rank }: ResortCardProps) => {
         <div className="flex items-center justify-between mt-3">
           <StatusBadge status={resort.status} />
           <span className="text-xs text-muted-foreground">
-            {resort.altitude.min}m - {resort.altitude.max}m
+            Pistenzustand: <span className="text-foreground font-medium">{resort.slopeCondition}</span>
           </span>
         </div>
       </div>
@@ -96,12 +96,7 @@ export const ResortCard = ({ resort, rank }: ResortCardProps) => {
             label="Lifte"
             size={72}
           />
-          <ProgressRing
-            value={resort.slopesOpen}
-            max={resort.slopesTotal}
-            label="Pisten"
-            size={72}
-          />
+
           <ProgressRing
             value={resort.slopesOpenKm}
             max={resort.slopesTotalKm}
@@ -113,11 +108,23 @@ export const ResortCard = ({ resort, rank }: ResortCardProps) => {
 
       {/* Footer */}
       <div className="p-4 flex items-center justify-between bg-secondary/30">
-        <AvalancheBadge level={resort.avalancheWarning} text={resort.avalancheText} />
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Clock className="w-3.5 h-3.5" />
-          {formatDate(resort.lastUpdate)}
+        <div className="flex flex-col gap-1">
+          <AvalancheBadge level={resort.avalancheWarning} text={resort.avalancheText} />
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Clock className="w-3 h-3" />
+            {formatDate(resort.lastUpdate)}
+          </div>
         </div>
+        
+        <a 
+          href={resort.url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold transition-colors flex items-center gap-1.5"
+        >
+          Details
+          <TrendingUp className="w-3.5 h-3.5 rotate-45" />
+        </a>
       </div>
     </Card>
   );
