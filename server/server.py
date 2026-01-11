@@ -345,7 +345,6 @@ async def get_resorts(request: fastapi.Request): # Request object needed for slo
         }
         
     except Exception as e:
-    except Exception as e:
         print(f"Error fetching data: {e}") # Log internal detail
         # Return generic error to user to avoid leaking stack traces
         raise HTTPException(status_code=500, detail="Internal Server Error")
