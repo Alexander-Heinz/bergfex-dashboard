@@ -1,4 +1,4 @@
-import { SkiResort } from '@/data/mockResorts';
+import { SkiResort } from '@/types/resort';
 import { Card } from './ui/card';
 import { Trophy, Snowflake } from 'lucide-react';
 

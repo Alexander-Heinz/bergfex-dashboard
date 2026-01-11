@@ -2,6 +2,7 @@ import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 
 export type SortOption = 
+  | 'shredScore'
   | 'snowMountain' 
   | 'newSnow' 
   | 'slopesOpenKm' 
@@ -15,8 +16,9 @@ interface SortControlsProps {
 
 export const SortControls = ({ currentSort, onSortChange }: SortControlsProps) => {
   const options: { value: SortOption; label: string }[] = [
-    { value: 'snowMountain', label: 'Schneehöhe' },
+    { value: 'shredScore', label: 'Shred Score' },
     { value: 'newSnow', label: 'Neuschnee' },
+    { value: 'snowMountain', label: 'Schneehöhe' },
     { value: 'slopesOpenKm', label: 'Pisten km' },
     { value: 'liftsOpen', label: 'Lifte' },
     { value: 'name', label: 'Name' },

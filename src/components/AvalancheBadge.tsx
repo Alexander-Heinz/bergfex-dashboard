@@ -28,7 +28,7 @@ export const AvalancheBadge = ({ level, text, compact = false }: AvalancheBadgeP
   if (level === 0 || text === "-") {
     return (
       <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-muted/10 text-muted-foreground border-muted/30')}>
-        <span className="text-xs font-medium">Keine Meldung</span>
+        <span className="text-xs font-medium">Keine Lawinen-Info</span>
       </div>
     );
   }
@@ -49,8 +49,10 @@ export const AvalancheBadge = ({ level, text, compact = false }: AvalancheBadgeP
   return (
     <div className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border', getStyles())}>
       <AlertTriangle className="w-4 h-4" />
+      <span className="text-xs font-medium hidden sm:inline">Lawinenwarnstufe</span>
+      <span className="text-xs font-medium sm:hidden">LWS</span>
       <span className="font-bold">{level}</span>
-      <span className="text-sm">- {text}</span>
+      <span className="text-sm opacity-80 border-l border-current/20 pl-2">{text}</span>
     </div>
   );
 };

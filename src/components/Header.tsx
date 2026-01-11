@@ -51,7 +51,7 @@ export const Header = ({ resortCount, latestDate }: HeaderProps) => {
           <div className="flex flex-wrap items-center justify-center gap-3 mt-5">
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 text-primary-foreground text-xs md:text-sm">
               <MapPin className="w-3.5 h-3.5" />
-              <span>{resortCount} Skigebiete</span>
+              <span>{resortCount} Geöffnete Skigebiete</span>
             </div>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary-foreground/10 backdrop-blur-sm border border-primary-foreground/20 text-primary-foreground text-xs md:text-sm">
               <Thermometer className="w-3.5 h-3.5" />

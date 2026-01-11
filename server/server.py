@@ -42,7 +42,8 @@ app.add_middleware(
 # Configuration
 PROJECT_ID = os.getenv("GCP_PROJECT_ID", "bergfex-481612")
 DATASET_ID = os.getenv("BQ_DATASET_ID", "bergfex_data")
-TABLE_ID = os.getenv("BQ_TABLE_ID", "snow_reports")
+# Updated view with shred score
+VIEW_ID = os.getenv("BQ_VIEW_ID", "vw_latest_snow_with_shred_score")
 
 # Initialize BigQuery Client
 # Check for credentials JSON in env var (common for Render/Heroku)
@@ -84,6 +85,15 @@ class SkiResort(BaseModel):
     lastUpdate: str
     altitude: dict
     url: str
+    # Shred Score Fields
+    shredScore: Optional[float] = None
+    scoreFreshness: Optional[float] = None
+    scoreBaseSnow: Optional[float] = None
+    scoreTerrain: Optional[float] = None
+    scoreSnowFactor: Optional[float] = None
+    scoreSlopeFactor: Optional[float] = None
+    scoreCondition: Optional[float] = None
+    scoreAvalanchePenalty: Optional[float] = None
 
 def parse_val(val):
     if val is None or val == "":
@@ -184,19 +194,25 @@ class ResortResponse(BaseModel):
     topSnowResorts: List[SkiResort]
     topNewSnowResorts: List[SkiResort]
     avalancheDistribution: dict
+    # Global stats (unaffected by filters)
+    globalTotalCount: int
+    globalOpenCount: int
+    globalAvgSnowMountain: float
+    globalTotalNewSnow: float
+    globalTotalOpenKm: float
+    # Available filter options
+    availableCountries: List[str]
+    availableRegions: dict  # {country: [region1, region2, ...]}"
 
 
 @app.get("/api/resorts", response_model=ResortResponse)
-async def get_resorts(
-    sort: str = "slopesOpenKm",
-    limit: int = 50,
-    offset: int = 0
-):
-    # Use QUALIFY to get the latest snapshot for each resort (deduping within the same day)
+async def get_resorts():
+    """
+    Returns ALL resorts in one request. Filtering/sorting is done client-side for instant UX.
+    """
     query = f"""
         SELECT *
-        FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY resort_name ORDER BY scraped_at DESC) = 1
+        FROM `{PROJECT_ID}.{DATASET_ID}.{VIEW_ID}`
     """
     
     try:
@@ -205,26 +221,24 @@ async def get_resorts(
         
         BASE_BERG_URL = "https://www.bergfex.at"
         
-        resorts = []
+        all_resorts = []
         for i, row in enumerate(rows):
-            # Mapping fields from DB
-            snow_valley = parse_val(row.snow_valley)
-            snow_mountain = parse_val(row.snow_mountain)
-            new_snow = parse_val(row.new_snow)
+            snow_valley = parse_val(row.snow_valley_raw)
+            snow_mountain = parse_val(row.snow_mountain_raw)
+            new_snow = parse_val(row.new_snow_raw)
             
             mapped_country = map_country(row.country)
             avalanche_level, avalanche_text = map_avalanche(str(row.avalanche_warning) if row.avalanche_warning is not None else None)
             
-            # Construct URL
             area_url = row.area_url or ""
             full_url = f"{BASE_BERG_URL}{area_url}" if area_url.startswith("/") else area_url
             
-            slopes_open_km = float(parse_val(getattr(row, 'slopes_open_km', 0)))
+            slopes_open_km = float(parse_val(getattr(row, 'slopes_open_km_raw', 0)))
             
-            resorts.append({
+            all_resorts.append({
                 "id": str(i + 1),
                 "name": row.resort_name or "Unknown Resort",
-                "region": "Tirol", # Region is not yet consistently in DB
+                "region": getattr(row, 'region', None) or "Unbekannt",
                 "country": mapped_country,
                 "status": map_status(row.status),
                 "snowValley": float(snow_valley),
@@ -241,57 +255,55 @@ async def get_resorts(
                 "slopesOpen": parse_val(getattr(row, 'slopes_open_count', 0)),
                 "slopesTotal": parse_val(getattr(row, 'slopes_total_count', 0)),
                 "slopeCondition": row.slope_condition or "-",
-                "lastUpdate": row.scraped_at.strftime("%Y-%m-%d %H:%M:%S") if row.scraped_at else "",
-                "altitude": {"min": 1000, "max": 2000}, # Placeholder
-                "url": full_url
+                "lastUpdate": row.last_update.strftime("%Y-%m-%d %H:%M:%S") if row.scraped_at else "",
+                "altitude": {
+                    "min": parse_val(getattr(row, 'elevation_valley', 0)) or 0,
+                    "max": parse_val(getattr(row, 'elevation_mountain', 0)) or 0
+                },
+                "url": full_url,
+                # Shred Score Mappings (handle potential NULLs safely)
+                "shredScore": float(row.shred_coefficient) if getattr(row, 'shred_coefficient', None) is not None else None,
+                "scoreFreshness": float(row.freshness) if getattr(row, 'freshness', None) is not None else None,
+                "scoreBaseSnow": float(row.base_snow) if getattr(row, 'base_snow', None) is not None else None,
+                "scoreTerrain": float(row.terrain) if getattr(row, 'terrain', None) is not None else None,
+                "scoreSnowFactor": float(row.snow_factor) if getattr(row, 'snow_factor', None) is not None else None,
+                "scoreSlopeFactor": float(row.slope_factor) if getattr(row, 'slope_factor', None) is not None else None,
+                "scoreCondition": float(row.conditions_factor) if getattr(row, 'conditions_factor', None) is not None else None,
+                "scoreAvalanchePenalty": float(row.avalanche_penalty) if getattr(row, 'avalanche_penalty', None) is not None else None
             })
-            
-        # Calculate totals before limiting
-        total_count = len(resorts)
-        open_count = sum(1 for r in resorts if r["status"] == "Geöffnet" or r["status"] == "Teilweise geöffnet")
-        
-        # Calculate Global Aggregates (regardless of filter/sort)
-        if total_count > 0:
-            avg_snow_mountain = sum(r["snowMountain"] for r in resorts) / total_count
-        else:
-            avg_snow_mountain = 0
-            
-        total_new_snow = sum(r["newSnow"] for r in resorts)
-        total_open_km = sum(r["slopesOpenKm"] for r in resorts)
 
-        # Get top lists for charts (from full dataset)
-        top_snow = sorted(resorts, key=lambda x: x["snowMountain"], reverse=True)[:5]
-        top_new_snow = sorted(resorts, key=lambda x: x["newSnow"], reverse=True)[:5]
+        # Calculate stats
+        total_count = len(all_resorts)
+        open_count = sum(1 for r in all_resorts if r["status"] in ["Geöffnet", "Teilweise geöffnet"])
+        avg_snow_mountain = sum(r["snowMountain"] for r in all_resorts) / total_count if total_count > 0 else 0
+        total_new_snow = sum(r["newSnow"] for r in all_resorts)
+        total_open_km = sum(r["slopesOpenKm"] for r in all_resorts)
+
+        # Top lists
+        top_snow = sorted(all_resorts, key=lambda x: x["snowMountain"], reverse=True)[:5]
+        top_new_snow = sorted(all_resorts, key=lambda x: x["newSnow"], reverse=True)[:5]
         
-        # Calculate Avalanche Distribution (Full Dataset)
+        # Avalanche distribution
         avalanche_dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        for r in resorts:
+        for r in all_resorts:
             lvl = r["avalancheWarning"]
             if 1 <= lvl <= 5:
-                avalanche_dist[lvl] = avalanche_dist.get(lvl, 0) + 1
+                avalanche_dist[lvl] += 1
 
-        # Determine sort key and reverse flag based on sort parameter
-        # Default: slopesOpenKm desc
-        key_func = lambda x: x["slopesOpenKm"]
-        reverse = True
+        # Build available countries and regions
+        countries_set = set()
+        regions_by_country = {}
+        for r in all_resorts:
+            c = r["country"]
+            reg = r["region"]
+            countries_set.add(c)
+            if c not in regions_by_country:
+                regions_by_country[c] = set()
+            if reg and reg != "Unbekannt":
+                regions_by_country[c].add(reg)
         
-        if sort == "snowMountain":
-            key_func = lambda x: x["snowMountain"]
-            reverse = True
-        elif sort == "newSnow":
-            key_func = lambda x: x["newSnow"]
-            reverse = True
-        elif sort == "liftsOpen":
-            key_func = lambda x: x["liftsOpen"]
-            reverse = True
-        elif sort == "name":
-            key_func = lambda x: x["name"].lower()
-            reverse = False # Alphabetical ascending
-            
-        resorts.sort(key=key_func, reverse=reverse)
-        
-        # Apply Pagination
-        resorts_slice = resorts[offset : offset + limit]
+        available_countries = sorted(list(countries_set))
+        available_regions = {c: sorted(list(regs)) for c, regs in regions_by_country.items()}
         
         return {
             "totalCount": total_count,
@@ -300,9 +312,17 @@ async def get_resorts(
             "totalNewSnow": total_new_snow,
             "totalOpenKm": round(total_open_km, 1),
             "avalancheDistribution": avalanche_dist,
-            "resorts": resorts_slice,
+            "resorts": all_resorts,  # Return ALL resorts
             "topSnowResorts": top_snow,
-            "topNewSnowResorts": top_new_snow
+            "topNewSnowResorts": top_new_snow,
+            # Global stats same as regular (no filtering on server now)
+            "globalTotalCount": total_count,
+            "globalOpenCount": open_count,
+            "globalAvgSnowMountain": round(avg_snow_mountain),
+            "globalTotalNewSnow": total_new_snow,
+            "globalTotalOpenKm": round(total_open_km, 1),
+            "availableCountries": available_countries,
+            "availableRegions": available_regions
         }
         
     except Exception as e:
