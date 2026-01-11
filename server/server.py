@@ -3,13 +3,19 @@ from typing import List, Optional
 import re
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+import fastapi
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import bigquery
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from google.oauth2 import service_account
 import json
+
+# Security & Rate Limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # Load env vars from parent directory or local
 load_dotenv()
@@ -22,14 +28,26 @@ from fastapi.responses import FileResponse
 
 app = FastAPI()
 
+# Rate Limiter Setup
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Mount static files if directory exists (for production/docker)
 if os.path.exists("static"):
     app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 
-# Configure CORS
+# Configure CORS (Secure)
+# Production: Set FRONTEND_URL env var (e.g., "https://bergfex-dashboard.onrender.com")
+frontend_url = os.getenv("FRONTEND_URL")
+origins = [frontend_url] if frontend_url else ["*"]
+
+if not frontend_url:
+    print("WARNING: FRONTEND_URL not set. CORS is allowing all origins (*).")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=origins, 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -206,7 +224,8 @@ class ResortResponse(BaseModel):
 
 
 @app.get("/api/resorts", response_model=ResortResponse)
-async def get_resorts():
+@limiter.limit("60/minute") # Rate limit: 60 requests per minute per IP
+async def get_resorts(request: fastapi.Request): # Request object needed for slowapi
     """
     Returns ALL resorts in one request. Filtering/sorting is done client-side for instant UX.
     """
@@ -326,8 +345,10 @@ async def get_resorts():
         }
         
     except Exception as e:
-        print(f"Error fetching data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        print(f"Error fetching data: {e}") # Log internal detail
+        # Return generic error to user to avoid leaking stack traces
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 if __name__ == "__main__":
     import uvicorn
