@@ -13,6 +13,9 @@ import {
   Activity
 } from 'lucide-react';
 import { Card } from './ui/card';
+import { useState } from 'react';
+import { useResortHistory } from '@/hooks/useResortHistory';
+import { ResortHistoryChart } from './ResortHistoryChart';
 
 interface ResortCardProps {
   resort: SkiResort;
@@ -31,6 +34,8 @@ export const ResortCard = ({ resort, rank }: ResortCardProps) => {
   };
 
   const score = resort.shredScore ? resort.shredScore.toFixed(1) : null;
+  const [showHistory, setShowHistory] = useState(false);
+  const { data: historyData, loading: historyLoading, error: historyError } = useResortHistory(resort.id, showHistory);
 
   return (
     <Card className="group relative overflow-visible bg-card border-border shadow-card hover:shadow-card-hover transition-all duration-300 hover:-translate-y-1">
@@ -41,6 +46,7 @@ export const ResortCard = ({ resort, rank }: ResortCardProps) => {
             <span className="text-xl font-black leading-none tracking-tighter">{score}</span>
             <span className="text-[7px] font-bold uppercase tracking-wide opacity-80">Score</span>
           </div>
+          <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[8px] text-muted-foreground opacity-0 group-hover/score:opacity-100 transition-opacity whitespace-nowrap">Hover für Details</span>
           
           {/* Detailed Score Tooltip */}
           <div className="invisible group-hover/score:visible absolute right-0 top-16 w-60 p-3 bg-popover text-popover-foreground rounded-xl shadow-2xl border border-border z-50 text-xs animate-in fade-in zoom-in-95 duration-200">
@@ -113,65 +119,84 @@ export const ResortCard = ({ resort, rank }: ResortCardProps) => {
         </div>
       </div>
 
-      {/* Snow Section */}
-      <div className="p-5 border-b border-border bg-gradient-frost">
-        <div className="flex items-center justify-between mb-4">
-          <h4 className="font-semibold text-sm text-foreground flex items-center gap-2">
-            <Snowflake className="w-4 h-4 text-alpine-sky" />
-            Schneehöhen
-          </h4>
-          {resort.newSnow > 0 && (
-            <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-snow-fresh/20 text-snow-fresh text-xs font-semibold">
-              <TrendingUp className="w-3 h-3" />
-              +{resort.newSnow} cm Neuschnee
+      {/* Snow Section or History */}
+      <div className="p-5 border-b border-border bg-gradient-frost min-h-[220px]">
+        {!showHistory ? (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-semibold text-sm text-foreground flex items-center gap-2">
+                <Snowflake className="w-4 h-4 text-alpine-sky" />
+                Schneehöhen
+              </h4>
+              {resort.newSnow > 0 && (
+                <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-snow-fresh/20 text-snow-fresh text-xs font-semibold">
+                  <TrendingUp className="w-3 h-3" />
+                  +{resort.newSnow} cm Neuschnee
+                </div>
+              )}
             </div>
-          )}
-        </div>
-        <SnowDepthGauge valley={resort.snowValley} mountain={resort.snowMountain} />
-        <div className="flex items-center justify-center gap-4 mt-4 text-sm">
-          <span className="flex items-center gap-1.5 text-muted-foreground">
-            <span>{getSnowConditionIcon(resort.snowCondition)}</span>
-            <span className="font-medium text-foreground">{resort.snowCondition}</span>
-          </span>
-          <span className="text-muted-foreground">•</span>
-          <span className="text-muted-foreground">
-            Letzter Schneefall: <span className="font-medium text-foreground">{resort.lastSnowfall}</span>
-          </span>
-        </div>
+            <SnowDepthGauge valley={resort.snowValley} mountain={resort.snowMountain} />
+            <div className="flex items-center justify-center gap-4 mt-4 text-sm">
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <span>{getSnowConditionIcon(resort.snowCondition)}</span>
+                <span className="font-medium text-foreground">{resort.snowCondition}</span>
+              </span>
+              <span className="text-muted-foreground">•</span>
+              <span className="text-muted-foreground">
+                Letzter Schneefall: <span className="font-medium text-foreground">{resort.lastSnowfall}</span>
+              </span>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-col h-full animate-in fade-in duration-300">
+             <h4 className="font-semibold text-sm text-foreground flex items-center gap-2 mb-2">
+                <Activity className="w-4 h-4 text-emerald-500" />
+                Saison-Verlauf
+              </h4>
+             <ResortHistoryChart data={historyData} loading={historyLoading} error={historyError} />
+          </div>
+        )}
       </div>
 
-      {/* Stats Grid */}
-      <div className="p-5 border-b border-border">
-        <div className="flex justify-around items-center">
-          {(resort.status === 'Geöffnet' || resort.status === 'Teilweise geöffnet') && (resort.liftsOpen === 0 || resort.liftsOpen === null) ? (
-             <div className="flex flex-col items-center justify-center h-[72px] w-[72px] text-center">
-               <span className="text-xs text-muted-foreground font-medium">Lifte</span>
-               <span className="text-[10px] leading-tight text-muted-foreground">Keine<br/>Meldung</span>
-            </div>
-          ) : (
-            <ProgressRing
-              value={resort.liftsOpen}
-              max={resort.liftsTotal}
-              label="Lifte"
-              size={72}
-            />
-          )}
+      {/* Stats Grid - Only show if not in history mode, or show different stats? 
+          Let's hide it in history mode to save space/clean look, or keep it.
+          Let's keep it but maybe it looks crowded with the chart if the chart is tall.
+          The chart is set to h-[250px], and the snow section had min-h.
+          Let's conditionally render Stats Grid only in non-history mode for now.
+      */}
+      {!showHistory && (
+        <div className="p-5 border-b border-border">
+          <div className="flex justify-around items-center">
+            {(resort.status === 'Geöffnet' || resort.status === 'Teilweise geöffnet') && (resort.liftsOpen === 0 || resort.liftsOpen === null) ? (
+               <div className="flex flex-col items-center justify-center h-[72px] w-[72px] text-center">
+                 <span className="text-xs text-muted-foreground font-medium">Lifte</span>
+                 <span className="text-[10px] leading-tight text-muted-foreground">Keine<br/>Meldung</span>
+              </div>
+            ) : (
+              <ProgressRing
+                value={resort.liftsOpen}
+                max={resort.liftsTotal}
+                label="Lifte"
+                size={72}
+              />
+            )}
 
-          {(resort.status === 'Geöffnet' || resort.status === 'Teilweise geöffnet') && (resort.slopesOpenKm === 0 || resort.slopesOpenKm === null) ? (
-            <div className="flex flex-col items-center justify-center h-[72px] w-[72px] text-center">
-               <span className="text-xs text-muted-foreground font-medium">Pisten</span>
-               <span className="text-[10px] leading-tight text-muted-foreground">Keine<br/>Meldung</span>
-            </div>
-          ) : (
-            <ProgressRing
-              value={resort.slopesOpenKm}
-              max={resort.slopesTotalKm}
-              label="km"
-              size={72}
-            />
-          )}
+            {(resort.status === 'Geöffnet' || resort.status === 'Teilweise geöffnet') && (resort.slopesOpenKm === 0 || resort.slopesOpenKm === null) ? (
+              <div className="flex flex-col items-center justify-center h-[72px] w-[72px] text-center">
+                 <span className="text-xs text-muted-foreground font-medium">Pisten</span>
+                 <span className="text-[10px] leading-tight text-muted-foreground">Keine<br/>Meldung</span>
+              </div>
+            ) : (
+              <ProgressRing
+                value={resort.slopesOpenKm}
+                max={resort.slopesTotalKm}
+                label="km"
+                size={72}
+              />
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Footer */}
       <div className="p-4 flex items-center justify-between bg-secondary/30">
@@ -183,15 +208,39 @@ export const ResortCard = ({ resort, rank }: ResortCardProps) => {
           </div>
         </div>
         
-        <a 
-          href={resort.url} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold transition-colors flex items-center gap-1.5"
-        >
-          Details
-          <TrendingUp className="w-3.5 h-3.5 rotate-45" />
-        </a>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                showHistory 
+                ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20' 
+                : 'bg-secondary hover:bg-secondary/80 text-foreground'
+            }`}
+          >
+            {showHistory ? (
+              <>
+                <Snowflake className="w-3.5 h-3.5" />
+                Aktuell
+              </>
+            ) : (
+              <>
+                <Activity className="w-3.5 h-3.5" />
+                Verlauf
+              </>
+            )}
+          </button>
+          
+          <a 
+            href={resort.url} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="px-3 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold transition-colors flex items-center gap-1.5"
+            title="Auf Bergfex öffnen"
+          >
+            Bergfex
+            <TrendingUp className="w-3.5 h-3.5 rotate-45" />
+          </a>
+        </div>
       </div>
     </Card>
   );
