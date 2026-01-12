@@ -255,7 +255,7 @@ async def get_resorts(request: fastapi.Request): # Request object needed for slo
             slopes_open_km = float(parse_val(getattr(row, 'slopes_open_km_raw', 0)))
             
             all_resorts.append({
-                "id": str(i + 1),
+                "id": str(row.resort_id),
                 "name": row.resort_name or "Unknown Resort",
                 "region": getattr(row, 'region', None) or "Unbekannt",
                 "country": mapped_country,
@@ -347,6 +347,80 @@ async def get_resorts(request: fastapi.Request): # Request object needed for slo
     except Exception as e:
         print(f"Error fetching data: {e}") # Log internal detail
         # Return generic error to user to avoid leaking stack traces
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
+@app.get("/api/resorts/{resort_id}/history")
+@limiter.limit("60/minute")
+async def get_resort_history(resort_id: str, request: fastapi.Request):
+    """
+    Fetch history for a specific resort.
+    """
+    # Sanitize inputs to prevent injection (though BQ parameters are safer, this is a quick check)
+    # Sanitize inputs to prevent injection (though BQ parameters are safer, this is a quick check)
+    if not str(resort_id).isalnum():
+         raise HTTPException(status_code=400, detail="Invalid resort ID")
+
+    # Table name for history view
+    HISTORY_VIEW = "vw_resort_metrics_history"
+    
+    query = f"""
+        SELECT 
+            measurement_date,
+            scraped_at,
+            snow_mountain_cm,
+            snow_valley_cm,
+            new_snow_cm,
+            lifts_open_count,
+            lifts_total_count,
+            slopes_open_km,
+            slopes_total_km,
+            shred_coefficient,
+            raw_score,
+            freshness,
+            base_snow,
+            terrain,
+            conditions_factor,
+            avalanche_penalty
+        FROM `{PROJECT_ID}.{DATASET_ID}.{HISTORY_VIEW}`
+        WHERE resort_id = @resort_id
+        ORDER BY scraped_at ASC
+    """
+    
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("resort_id", "STRING", str(resort_id))
+        ]
+    )
+
+    try:
+        query_job = client.query(query, job_config=job_config)
+        rows = query_job.result()
+        
+        history = []
+        for row in rows:
+            history.append({
+                "date": row.measurement_date.isoformat() if row.measurement_date else None,
+                "timestamp": row.scraped_at.isoformat() if row.scraped_at else None,
+                "snowMountain": float(row.snow_mountain_cm) if row.snow_mountain_cm is not None else 0,
+                "snowValley": float(row.snow_valley_cm) if row.snow_valley_cm is not None else 0,
+                "newSnow": float(row.new_snow_cm) if row.new_snow_cm is not None else 0,
+                "liftsOpen": int(row.lifts_open_count) if row.lifts_open_count is not None else 0,
+                "liftsTotal": int(row.lifts_total_count) if row.lifts_total_count is not None else 0,
+                "slopesOpen": float(row.slopes_open_km) if row.slopes_open_km is not None else 0,
+                "slopesTotal": float(row.slopes_total_km) if row.slopes_total_km is not None else 0,
+                "shredScore": float(row.shred_coefficient) if row.shred_coefficient is not None else None,
+                # Components
+                "scoreFreshness": float(row.freshness) if row.freshness is not None else None,
+                "scoreBaseSnow": float(row.base_snow) if row.base_snow is not None else None,
+                "scoreTerrain": float(row.terrain) if row.terrain is not None else None,
+                "scoreConditions": float(row.conditions_factor) if row.conditions_factor is not None else None,
+                "scoreAvalanchePenalty": float(row.avalanche_penalty) if row.avalanche_penalty is not None else None
+            })
+            print(history)
+        return history
+        
+    except Exception as e:
+        print(f"Error fetching history for {resort_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 if __name__ == "__main__":
