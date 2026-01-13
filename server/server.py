@@ -429,6 +429,11 @@ async def serve_spa(full_path: str):
     if full_path.startswith("api"):
         raise HTTPException(status_code=404, detail="Not Found")
     
+    # Try to serve static file if it exists (e.g. favicon.ico, specific assets not in /assets)
+    static_file_path = os.path.join("static", full_path)
+    if os.path.exists("static") and os.path.isfile(static_file_path):
+        return FileResponse(static_file_path)
+
     if os.path.exists("static/index.html"):
         return FileResponse("static/index.html")
     # In local dev without static build, just return 404 or handled by Vite proxy
