@@ -10,8 +10,15 @@ import {
   Clock, 
   MapPin,
   TrendingUp,
-  Activity
+  Activity,
+  Info
 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from './ui/tooltip';
 import { Card } from './ui/card';
 import { useState } from 'react';
 import { useResortHistory } from '@/hooks/useResortHistory';
@@ -129,10 +136,26 @@ export const ResortCard = ({ resort, rank }: ResortCardProps) => {
                 Schneehöhen
               </h4>
               {resort.newSnow > 0 && (
-                <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-snow-fresh/20 text-snow-fresh text-xs font-semibold">
-                  <TrendingUp className="w-3 h-3" />
-                  +{resort.newSnow} cm Neuschnee
-                </div>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-snow-fresh/20 text-snow-fresh text-xs font-semibold cursor-help">
+                        <TrendingUp className="w-3 h-3" />
+                        +{resort.newSnow} cm Neuschnee
+                        <Info className="w-3 h-3 ml-0.5 opacity-70" />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <div className="text-xs max-w-[250px]">
+                        <p className="font-semibold mb-1">Hinweis zur Datenquelle</p>
+                        <p>
+                          Diese Daten stammen von der Bergfex Länder-Übersicht (z.B. /oesterreich/schneewerte/). 
+                          Der Wert kann von der Angabe auf der Resort-Detailseite abweichen.
+                        </p>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               )}
             </div>
             <SnowDepthGauge valley={resort.snowValley} mountain={resort.snowMountain} />
