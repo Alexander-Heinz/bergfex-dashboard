@@ -355,10 +355,6 @@ async def get_resort_history(resort_id: str, request: fastapi.Request):
     """
     Fetch history for a specific resort.
     """
-    # Sanitize inputs to prevent injection (though BQ parameters are safer, this is a quick check)
-    # Sanitize inputs to prevent injection (though BQ parameters are safer, this is a quick check)
-    if not str(resort_id).isalnum():
-         raise HTTPException(status_code=400, detail="Invalid resort ID")
 
     # Table name for history view
     HISTORY_VIEW = "vw_resort_metrics_history"

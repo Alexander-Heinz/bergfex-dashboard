@@ -158,12 +158,6 @@ export const ResortCard = ({ resort, rank }: ResortCardProps) => {
         )}
       </div>
 
-      {/* Stats Grid - Only show if not in history mode, or show different stats? 
-          Let's hide it in history mode to save space/clean look, or keep it.
-          Let's keep it but maybe it looks crowded with the chart if the chart is tall.
-          The chart is set to h-[250px], and the snow section had min-h.
-          Let's conditionally render Stats Grid only in non-history mode for now.
-      */}
       {!showHistory && (
         <div className="p-5 border-b border-border">
           <div className="flex justify-around items-center">
