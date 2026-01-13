@@ -44,6 +44,7 @@ export const DashboardStats = ({
       icon: CheckCircle2,
       color: 'text-status-open',
       bgColor: 'bg-status-open/10',
+      tooltip: 'Anzahl der aktuell geöffneten Skigebiete im Vergleich zur Gesamtzahl.',
     },
     {
       label: 'Ø Schneehöhe Berg',
@@ -51,6 +52,7 @@ export const DashboardStats = ({
       icon: Mountain,
       color: 'text-alpine-sky',
       bgColor: 'bg-alpine-sky/10',
+      tooltip: 'Durchschnittliche Schneehöhe auf den Bergen aller erfassten Skigebiete.',
     },
     {
       label: 'Neuschnee gesamt',
@@ -58,6 +60,7 @@ export const DashboardStats = ({
       icon: Snowflake,
       color: 'text-snow-fresh',
       bgColor: 'bg-snow-fresh/10',
+      tooltip: 'Summe des gemeldeten Neuschnees über alle Skigebiete.',
     },
     {
       label: 'Offene Pistenkilometer',
@@ -65,6 +68,7 @@ export const DashboardStats = ({
       icon: TrendingUp,
       color: 'text-alpine-amber',
       bgColor: 'bg-alpine-amber/10',
+      tooltip: 'Gesamte Länge aller aktuell befahrbaren Pisten.',
     },
   ];
 
@@ -73,8 +77,9 @@ export const DashboardStats = ({
       {stats.map((stat, index) => (
         <Card
           key={stat.label}
-          className="p-4 bg-card border-border shadow-card hover:shadow-card-hover transition-all duration-300"
+          className="p-4 bg-card border-border shadow-card hover:shadow-card-hover transition-all duration-300 relative group cursor-help"
           style={{ animationDelay: `${index * 100}ms` }}
+          title={stat.tooltip}
         >
           <div className="flex items-start justify-between">
             <div>
@@ -84,6 +89,10 @@ export const DashboardStats = ({
             <div className={`p-2.5 rounded-xl ${stat.bgColor}`}>
               <stat.icon className={`w-5 h-5 ${stat.color}`} />
             </div>
+          </div>
+          {/* Tooltip */}
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-2 bg-popover text-popover-foreground text-xs rounded-lg shadow-lg border border-border opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-48 text-center z-50">
+            {stat.tooltip}
           </div>
         </Card>
       ))}

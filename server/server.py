@@ -255,7 +255,7 @@ async def get_resorts(request: fastapi.Request): # Request object needed for slo
             slopes_open_km = float(parse_val(getattr(row, 'slopes_open_km_raw', 0)))
             
             all_resorts.append({
-                "id": str(i + 1),
+                "id": str(row.resort_id),
                 "name": row.resort_name or "Unknown Resort",
                 "region": getattr(row, 'region', None) or "Unbekannt",
                 "country": mapped_country,
@@ -349,6 +349,76 @@ async def get_resorts(request: fastapi.Request): # Request object needed for slo
         # Return generic error to user to avoid leaking stack traces
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
+@app.get("/api/resorts/{resort_id}/history")
+@limiter.limit("60/minute")
+async def get_resort_history(resort_id: str, request: fastapi.Request):
+    """
+    Fetch history for a specific resort.
+    """
+
+    # Table name for history view
+    HISTORY_VIEW = "vw_resort_metrics_history"
+    
+    query = f"""
+        SELECT 
+            measurement_date,
+            scraped_at,
+            snow_mountain_cm,
+            snow_valley_cm,
+            new_snow_cm,
+            lifts_open_count,
+            lifts_total_count,
+            slopes_open_km,
+            slopes_total_km,
+            shred_coefficient,
+            raw_score,
+            freshness,
+            base_snow,
+            terrain,
+            conditions_factor,
+            avalanche_penalty
+        FROM `{PROJECT_ID}.{DATASET_ID}.{HISTORY_VIEW}`
+        WHERE resort_id = @resort_id
+        ORDER BY scraped_at ASC
+    """
+    
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("resort_id", "STRING", str(resort_id))
+        ]
+    )
+
+    try:
+        query_job = client.query(query, job_config=job_config)
+        rows = query_job.result()
+        
+        history = []
+        for row in rows:
+            history.append({
+                "date": row.measurement_date.isoformat() if row.measurement_date else None,
+                "timestamp": row.scraped_at.isoformat() if row.scraped_at else None,
+                "snowMountain": float(row.snow_mountain_cm) if row.snow_mountain_cm is not None else 0,
+                "snowValley": float(row.snow_valley_cm) if row.snow_valley_cm is not None else 0,
+                "newSnow": float(row.new_snow_cm) if row.new_snow_cm is not None else 0,
+                "liftsOpen": int(row.lifts_open_count) if row.lifts_open_count is not None else 0,
+                "liftsTotal": int(row.lifts_total_count) if row.lifts_total_count is not None else 0,
+                "slopesOpen": float(row.slopes_open_km) if row.slopes_open_km is not None else 0,
+                "slopesTotal": float(row.slopes_total_km) if row.slopes_total_km is not None else 0,
+                "shredScore": float(row.shred_coefficient) if row.shred_coefficient is not None else None,
+                # Components
+                "scoreFreshness": float(row.freshness) if row.freshness is not None else None,
+                "scoreBaseSnow": float(row.base_snow) if row.base_snow is not None else None,
+                "scoreTerrain": float(row.terrain) if row.terrain is not None else None,
+                "scoreConditions": float(row.conditions_factor) if row.conditions_factor is not None else None,
+                "scoreAvalanchePenalty": float(row.avalanche_penalty) if row.avalanche_penalty is not None else None
+            })
+            print(history)
+        return history
+        
+    except Exception as e:
+        print(f"Error fetching history for {resort_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
@@ -359,6 +429,11 @@ async def serve_spa(full_path: str):
     if full_path.startswith("api"):
         raise HTTPException(status_code=404, detail="Not Found")
     
+    # Try to serve static file if it exists (e.g. favicon.ico, specific assets not in /assets)
+    static_file_path = os.path.join("static", full_path)
+    if os.path.exists("static") and os.path.isfile(static_file_path):
+        return FileResponse(static_file_path)
+
     if os.path.exists("static/index.html"):
         return FileResponse("static/index.html")
     # In local dev without static build, just return 404 or handled by Vite proxy
