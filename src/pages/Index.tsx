@@ -2,6 +2,17 @@ import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SkiResort } from '@/types/resort';
 import { SortOption } from '@/components/SortControls';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Header } from '@/components/Header';
+import { DashboardStats } from '@/components/DashboardStats';
+import { ResortCard } from '@/components/ResortCard';
+import { FilterBar } from '@/components/FilterBar';
+import { TopResortsChart } from '@/components/TopResortsChart';
+import { NewSnowChart } from '@/components/NewSnowChart';
+import { AvalancheOverview } from '@/components/AvalancheOverview';
+import { Map as MapIcon, List } from 'lucide-react';
+import ResortMap from '@/components/ResortMap';
 
 interface ResortResponse {
   totalCount: number;
@@ -23,13 +34,6 @@ interface ResortResponse {
   availableCountries: string[];
   availableRegions: Record<string, string[]>;
 }
-import { Header } from '@/components/Header';
-import { DashboardStats } from '@/components/DashboardStats';
-import { ResortCard } from '@/components/ResortCard';
-import { FilterBar } from '@/components/FilterBar';
-import { TopResortsChart } from '@/components/TopResortsChart';
-import { NewSnowChart } from '@/components/NewSnowChart';
-import { AvalancheOverview } from '@/components/AvalancheOverview';
 
 const Index = () => {
   const [sortBy, setSortBy] = useState<SortOption>('shredScore');
@@ -38,6 +42,7 @@ const Index = () => {
   const [showOpenOnly, setShowOpenOnly] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<string>('');
   const [selectedRegion, setSelectedRegion] = useState<string>('');
+  const [activeTab, setActiveTab] = useState('list');
   const [limit, setLimit] = useState(50);
 
   // No debounce needed for client-side filtering of <1000 items
@@ -154,58 +159,79 @@ const Index = () => {
           <AvalancheOverview resorts={allResorts} globalDistribution={data?.avalancheDistribution} />
         </section>
 
-        {/* Resort Cards */}
+        {/* Resort Content with Tabs */}
         <section className="animate-fade-in" style={{ animationDelay: '200ms' }}>
-          <div className="flex flex-col gap-6 mb-6">
-            <div className="flex items-center justify-between">
+          <Tabs defaultValue="list" value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
               <h2 className="text-2xl font-bold text-foreground">
                 Alle Skigebiete 
                 <span className="text-muted-foreground text-lg font-normal ml-2">
-                  (zeige {visibleResorts.length} von {totalFilteredCount} {totalFilteredCount !== data?.globalTotalCount ? `gefiltert aus ${data?.globalTotalCount}` : ''})
+                  ({visibleResorts.length} von {totalFilteredCount})
                 </span>
               </h2>
+              
+              <TabsList className="grid w-full md:w-[400px] grid-cols-2 h-12">
+                <TabsTrigger value="list" className="text-base">
+                  <List className="w-4 h-4 mr-2" />
+                  Listenansicht
+                </TabsTrigger>
+                <TabsTrigger value="map" className="text-base relative">
+                   <MapIcon className="w-4 h-4 mr-2" />
+                   Kartenansicht
+                   <Badge variant="secondary" className="ml-2 bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border-blue-200">
+                     NEU
+                   </Badge>
+                </TabsTrigger>
+              </TabsList>
             </div>
-            
-            <FilterBar
-              sortBy={sortBy}
-              onSortChange={setSortBy}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery} // Direct update for real-time
-              openOnly={showOpenOnly}
-              onOpenOnlyChange={setShowOpenOnly}
-              selectedCountry={selectedCountry}
-              onCountryChange={setSelectedCountry}
-              selectedRegion={selectedRegion}
-              onRegionChange={setSelectedRegion}
-              availableCountries={availableCountries}
-              availableRegions={availableRegions}
-            />
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {visibleResorts.map((resort, index) => (
-              <div
-                key={`${sortBy}-${resort.id}`}
-                className="animate-fade-in"
-                style={{ animationDelay: `${300 + index * 50}ms` }}
-              >
-                <ResortCard resort={resort} rank={index + 1} />
+            <div className="mb-6">
+               <FilterBar
+                  sortBy={sortBy}
+                  onSortChange={setSortBy}
+                  searchQuery={searchQuery}
+                  onSearchChange={setSearchQuery} 
+                  openOnly={showOpenOnly}
+                  onOpenOnlyChange={setShowOpenOnly}
+                  selectedCountry={selectedCountry}
+                  onCountryChange={setSelectedCountry}
+                  selectedRegion={selectedRegion}
+                  onRegionChange={setSelectedRegion}
+                  availableCountries={availableCountries}
+                  availableRegions={availableRegions}
+                />
+            </div>
+
+            <TabsContent value="list" className="mt-0">
+               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {visibleResorts.map((resort, index) => (
+                  <div
+                    key={`${sortBy}-${resort.id}`}
+                    className="animate-fade-in"
+                  >
+                    <ResortCard resort={resort} rank={index + 1} />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
+              {visibleResorts.length < totalFilteredCount && (
+                <div className="flex justify-center mt-12">
+                   <button 
+                     onClick={() => setLimit(prev => prev + 50)}
+                     className="px-6 py-3 rounded-full bg-primary text-primary-foreground font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all"
+                   >
+                     Mehr anzeigen
+                   </button>
+                </div>
+              )}
+            </TabsContent>
 
-
-          {visibleResorts.length < totalFilteredCount && (
-            <div className="flex justify-center mt-12">
-               <button 
-                 onClick={() => setLimit(prev => prev + 50)}
-                 className="px-6 py-3 rounded-full bg-primary text-primary-foreground font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all"
-               >
-                 Mehr anzeigen
-               </button>
-            </div>
-          )}
+            <TabsContent value="map" className="mt-0">
+              <div className="bg-card rounded-xl border border-border shadow-sm p-1">
+                 <ResortMap resorts={processedResorts} />
+              </div>
+            </TabsContent>
+          </Tabs>
         </section>
       </main>
 
