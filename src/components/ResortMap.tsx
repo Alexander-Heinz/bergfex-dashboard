@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { SkiResort } from '../types/resort';
@@ -19,6 +19,11 @@ interface ResortMapProps {
 const ResortMap = ({ resorts }: ResortMapProps) => {
   const [metric, setMetric] = useState<MapMetric>('snowMountain');
   const [minVal, setMinVal] = useState<number>(0);
+
+  // Reset filter when toggling between metrics
+  useEffect(() => {
+    setMinVal(0);
+  }, [metric]);
 
   // Default center (focus on Alps)
   const defaultCenter: [number, number] = [47.5, 13.0];
