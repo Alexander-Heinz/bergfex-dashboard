@@ -101,8 +101,11 @@ class SkiResort(BaseModel):
     slopesTotal: int
     slopeCondition: str
     lastUpdate: str
+    # Updated SkiResort model with lat/lon
     altitude: dict
     url: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     # Shred Score Fields
     shredScore: Optional[float] = None
     scoreFreshness: Optional[float] = None
@@ -229,9 +232,14 @@ async def get_resorts(request: fastapi.Request): # Request object needed for slo
     """
     Returns ALL resorts in one request. Filtering/sorting is done client-side for instant UX.
     """
+    # Join with dim_resorts to get lat/lon
     query = f"""
-        SELECT *
-        FROM `{PROJECT_ID}.{DATASET_ID}.{VIEW_ID}`
+        SELECT 
+            v.*,
+            d.lat,
+            d.lon
+        FROM `{PROJECT_ID}.{DATASET_ID}.{VIEW_ID}` v
+        LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.dim_resorts` d ON v.resort_id = d.resort_id
     """
     
     try:
@@ -280,6 +288,8 @@ async def get_resorts(request: fastapi.Request): # Request object needed for slo
                     "max": parse_val(getattr(row, 'elevation_mountain', 0)) or 0
                 },
                 "url": full_url,
+                "latitude": row.lat if getattr(row, 'lat', None) is not None else None,
+                "longitude": row.lon if getattr(row, 'lon', None) is not None else None,
                 # Shred Score Mappings (handle potential NULLs safely)
                 "shredScore": float(row.shred_coefficient) if getattr(row, 'shred_coefficient', None) is not None else None,
                 "scoreFreshness": float(row.freshness) if getattr(row, 'freshness', None) is not None else None,
