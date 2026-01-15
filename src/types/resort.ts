@@ -24,6 +24,8 @@ export interface SkiResort {
     max: number;
   };
   url: string;
+  latitude?: number;
+  longitude?: number;
   // Shred Score
   shredScore?: number;
   scoreFreshness?: number;
