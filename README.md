@@ -1,73 +1,75 @@
-# Welcome to your Lovable project
+# Bergfex Snow Dashboard 🏂
 
-## Project info
+[![Live Demo](https://img.shields.io/badge/Demo-Live%20on%20Render-brightgreen?style=for-the-badge)](http://bergfex-dashboard.onrender.com/)
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+> [!NOTE]
+> Die App ist live auf **Render** (Free Tier) gehostet. Bitte beachte, dass der erste Aufruf bis zu 30-60 Sekunden dauern kann, da der Server bei Inaktivität in den Ruhezustand geht ("Cold Start").
 
-## How can I edit this code?
+![Dashboard Overview](docs/screenshots/dashboard_overview.png)
 
-There are several ways of editing your application.
+## Management Summary
+Das **Bergfex Snow Dashboard** ist eine leistungsstarke Full-Stack-Webanwendung zur Echtzeit-Analyse und Visualisierung von Skigebietsdaten im gesamten Alpenraum. Es aggregiert Daten von über 700 Skigebieten und bietet Wintersport-Enthusiasten sowie Analysten eine intuitive Plattform, um die besten Bedingungen ("Shred Conditions") auf einen Blick zu identifizieren. 
 
-**Use Lovable**
+Das Herzstück der Anwendung ist der eigens entwickelte **Shred Score**, der über einfache Schneehöhen hinausgeht und eine qualitative Bewertung des Pistentages liefert.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+### 🔗 [Direkt zur Live-Anwendung](http://bergfex-dashboard.onrender.com/)
 
-Changes made via Lovable will be committed automatically to this repo.
+---
 
-**Use your preferred IDE**
+## Key Features 🚀
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### 1. Der Shred Score 📈
+Ein dynamischer Algorithmus zur Bewertung der aktuellen Bedingungen. Im Gegensatz zu einfachen Filtern berechnet dieser Score die Attraktivität eines Skigebiets basierend auf:
+- **Neuschnee & Schneehöhe**: Quantität der Unterlage.
+- **Fahrbare Pistenlängen**: Verhältnis von offenen zu gesamten Pistenkilometern.
+- **Pistenqualität**: Aktueller Zustand der Abfahrten.
+- **Lawinengefahr**: Sicherheitsfaktoren fließen negativ in den Score ein, um ein realistisches Lagebild zu zeichnen.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### 2. Interaktive Kartenansicht 🗺️
+Eine filterbare Karte ermöglicht die räumliche Analyse der Schneebedingungen. 
+- **Echtzeit-Filter**: Umschalten zwischen Schneehöhen (Berg/Tal) und Neuschnee.
+- **Geovisualisierung**: Marker-Clustering und farbkodierte Overlays zur schnellen Orientierung.
 
-Follow these steps:
+![Interactive Map](docs/screenshots/interactive_map.png)
+
+### 3. Historische Daten & Trends 📊
+Analyse der Schneehöhen-Entwicklung über die Zeit, um Trends für die Saisonplanung abzuleiten.
+
+---
+
+## Technologie Stack 💻
+
+### Frontend
+- **Framework**: React 18 mit Vite
+- **Sprache**: TypeScript (für hohe Typsicherheit und Wartbarkeit)
+- **Styling**: Tailwind CSS & shadcn/ui für ein modernes, responsives UI/UX
+- **Karten**: Leaflet.js / React-Leaflet
+- **Charts**: Recharts
+
+### Backend & Infrastructure
+- **API**: FastAPI (Python 3.10+)
+- **Data Warehouse**: Google BigQuery
+- **Datenbeschaffung**: Automatisierter Scraper (Bergfex ETL-Pipeline)
+- **Provisionierung**: Terraform (Infrastructure as Code)
+- **Containerisierung**: Docker
+
+---
+
+## Installation & Setup 🛠️
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
+# Repository klonen
 git clone <YOUR_GIT_URL>
+cd bergfex-dashboard
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# Abhängigkeiten installieren
+npm install
 
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Development Server starten (Client & Backend Proxy)
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+---
+*Entwickelt als Showcase für moderne Web-Architekturen, Geo-Daten-Visualisierung und effiziente Datenverarbeitung.*
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+**Hier geht's zur Live-Anwendung:** [SnowRadar Dashboard](http://bergfex-dashboard.onrender.com/)
