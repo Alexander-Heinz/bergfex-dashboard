@@ -4,7 +4,6 @@ import re
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Request
-import fastapi
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import bigquery
 from dotenv import load_dotenv
@@ -24,7 +23,6 @@ load_dotenv("../.env") # Try loading from root if exists
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-# ... (omitted imports)
 
 app = FastAPI()
 
@@ -53,7 +51,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ... (rest of code)
 
 
 
@@ -228,7 +225,7 @@ class ResortResponse(BaseModel):
 
 @app.get("/api/resorts", response_model=ResortResponse)
 @limiter.limit("60/minute") # Rate limit: 60 requests per minute per IP
-async def get_resorts(request: fastapi.Request): # Request object needed for slowapi
+async def get_resorts(request: Request): # Request object needed for slowapi
     """
     Returns ALL resorts in one request. Filtering/sorting is done client-side for instant UX.
     """
@@ -361,7 +358,7 @@ async def get_resorts(request: fastapi.Request): # Request object needed for slo
 
 @app.get("/api/resorts/{resort_id}/history")
 @limiter.limit("60/minute")
-async def get_resort_history(resort_id: str, request: fastapi.Request):
+async def get_resort_history(resort_id: str, request: Request):
     """
     Fetch history for a specific resort.
     """
@@ -422,16 +419,11 @@ async def get_resort_history(resort_id: str, request: fastapi.Request):
                 "scoreConditions": float(row.conditions_factor) if row.conditions_factor is not None else None,
                 "scoreAvalanchePenalty": float(row.avalanche_penalty) if row.avalanche_penalty is not None else None
             })
-            print(history)
         return history
         
     except Exception as e:
         print(f"Error fetching history for {resort_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 # Catch-all route for SPA (must be last)
 @app.get("/{full_path:path}")
@@ -448,3 +440,7 @@ async def serve_spa(full_path: str):
         return FileResponse("static/index.html")
     # In local dev without static build, just return 404 or handled by Vite proxy
     raise HTTPException(status_code=404, detail="Frontend not built/served")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
