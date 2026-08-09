@@ -65,11 +65,11 @@ const Index = () => {
     },
   });
 
-  const allResorts = data?.resorts || [];
+  const allResorts = useMemo(() => data?.resorts ?? [], [data?.resorts]);
   
   // Available filter options from backend (or could be derived client side, but backend sends them)
-  const availableCountries = data?.availableCountries || [];
-  const availableRegions = data?.availableRegions || {};
+  const availableCountries = data?.availableCountries ?? [];
+  const availableRegions = data?.availableRegions ?? {};
 
   // Client-side Filtering & Sorting
   const processedResorts = useMemo(() => {

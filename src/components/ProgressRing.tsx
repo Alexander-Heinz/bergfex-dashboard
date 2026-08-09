@@ -47,7 +47,7 @@ export const ProgressRing = ({
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-lg font-bold text-foreground">{value}</span>
-          {max && <span className="text-xs text-muted-foreground">/{max}</span>}
+          {max !== undefined && <span className="text-xs text-muted-foreground">/{max}</span>}
         </div>
       </div>
       {label && (

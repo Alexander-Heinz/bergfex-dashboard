@@ -1,27 +1,24 @@
+import json
 import os
-from typing import List, Optional
 import re
-from datetime import datetime
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from google.cloud import bigquery
-from dotenv import load_dotenv
-from pydantic import BaseModel
 from google.oauth2 import service_account
-import json
+from pydantic import BaseModel
 
 # Security & Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 # Load env vars from parent directory or local
 load_dotenv()
-load_dotenv("../.env") # Try loading from root if exists
-
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+load_dotenv("../.env")  # Try loading from root if exists
 
 
 app = FastAPI()
@@ -45,13 +42,11 @@ if not frontend_url:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, 
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
 
 
 # Configuration
@@ -66,16 +61,19 @@ credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
 if credentials_json:
     try:
         credentials_info = json.loads(credentials_json)
-        credentials = service_account.Credentials.from_service_account_info(credentials_info)
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info
+        )
         client = bigquery.Client(project=PROJECT_ID, credentials=credentials)
         print("Initialized BigQuery client with credentials from env var.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Failed to load credentials from env var: {e}")
         # Fallback to default (might fail if no other auth available)
         client = bigquery.Client(project=PROJECT_ID)
 else:
     # Local dev or ADC
     client = bigquery.Client(project=PROJECT_ID)
+
 
 class SkiResort(BaseModel):
     id: str
@@ -101,17 +99,18 @@ class SkiResort(BaseModel):
     # Updated SkiResort model with lat/lon
     altitude: dict
     url: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: float | None = None
+    longitude: float | None = None
     # Shred Score Fields
-    shredScore: Optional[float] = None
-    scoreFreshness: Optional[float] = None
-    scoreBaseSnow: Optional[float] = None
-    scoreTerrain: Optional[float] = None
-    scoreSnowFactor: Optional[float] = None
-    scoreSlopeFactor: Optional[float] = None
-    scoreCondition: Optional[float] = None
-    scoreAvalanchePenalty: Optional[float] = None
+    shredScore: float | None = None
+    scoreFreshness: float | None = None
+    scoreBaseSnow: float | None = None
+    scoreTerrain: float | None = None
+    scoreSnowFactor: float | None = None
+    scoreSlopeFactor: float | None = None
+    scoreCondition: float | None = None
+    scoreAvalanchePenalty: float | None = None
+
 
 def parse_val(val):
     if val is None or val == "":
@@ -119,88 +118,99 @@ def parse_val(val):
     try:
         if isinstance(val, (int, float)):
             return val
-        
+
         # Determine if it's a string
         s = str(val).strip()
-        if not s: 
+        if not s:
             return 0
-            
+
         # Replace comma with dot
-        s = s.replace(',', '.')
-        
+        s = s.replace(",", ".")
+
         # Extract number: match optional digits, dot, digits
-        match = re.search(r'(\d+\.?\d*)', s)
+        match = re.search(r"(\d+\.?\d*)", s)
         if match:
             # Check if original was int-like or float-like
             num = float(match.group(1))
             return int(num) if num.is_integer() else num
         return 0
-    except:
+    except Exception:  # noqa: BLE001
         return 0
 
+
 def map_country(country_name):
-    if not country_name: return "AT"
+    if not country_name:
+        return "AT"
     name = country_name.lower()
-    if "österreich" in name: return "AT"
-    if "deutschland" in name: return "DE"
-    if "schweiz" in name: return "CH"
-    if "italien" in name: return "IT"
-    if "frankreich" in name: return "FR"
-    if "slowenien" in name: return "SI"
-    if "tschechien" in name: return "CZ"
-    if "polen" in name: return "PL"
-    if "slowakei" in name: return "SK"
+    if "österreich" in name:
+        return "AT"
+    if "deutschland" in name:
+        return "DE"
+    if "schweiz" in name:
+        return "CH"
+    if "italien" in name:
+        return "IT"
+    if "frankreich" in name:
+        return "FR"
+    if "slowenien" in name:
+        return "SI"
+    if "tschechien" in name:
+        return "CZ"
+    if "polen" in name:
+        return "PL"
+    if "slowakei" in name:
+        return "SK"
     return "AT"
 
+
 def map_status(status_val):
-    if not status_val: return "Geschlossen"
+    if not status_val:
+        return "Geschlossen"
     s = status_val.lower()
-    if "open" in s: return "Geöffnet"
-    if "closed" in s: return "Geschlossen"
+    if "open" in s:
+        return "Geöffnet"
+    if "closed" in s:
+        return "Geschlossen"
     return "Teilweise geöffnet"
+
 
 def map_avalanche(warning_str):
     """Map avalanche warning string to level (1-5) and text."""
     if not warning_str:
         return 0, "-"
-    
+
     warning_str = warning_str.strip().lower()
-    
+
     # Check for Roman numerals first (common in Bergfex)
     # Match "I", "II", "III", "IV", "V" followed by space or hyphen or end of string
-    roman_map = {
-        "i": 1,
-        "ii": 2, 
-        "iii": 3,
-        "iv": 4, 
-        "v": 5
-    }
-    
+    roman_map = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5}
+
     # Split by space or hyphen to get the first part
-    parts = re.split(r'[\s\-]+', warning_str)
+    parts = re.split(r"[\s\-]+", warning_str)
     first_part = parts[0]
-    
+
     level = 0
     if first_part in roman_map:
         level = roman_map[first_part]
     else:
         # Try to extract Arabic number
-        match = re.search(r'(\d)', warning_str)
+        match = re.search(r"(\d)", warning_str)
         if match:
             level = int(match.group(1))
             level = max(1, min(5, level))  # Clamp to 1-5
-    
+
     # Map level to German text
     AVALANCHE_TEXT = {
         1: "Gering",
         2: "Mäßig",
         3: "Erheblich",
         4: "Groß",
-        5: "Sehr groß"
+        5: "Sehr groß",
     }
     text = AVALANCHE_TEXT.get(level, "-")
-    
+
     return level, text
+
 
 class ResortResponse(BaseModel):
     totalCount: int
@@ -208,9 +218,9 @@ class ResortResponse(BaseModel):
     avgSnowMountain: float
     totalNewSnow: float
     totalOpenKm: float
-    resorts: List[SkiResort]
-    topSnowResorts: List[SkiResort]
-    topNewSnowResorts: List[SkiResort]
+    resorts: list[SkiResort]
+    topSnowResorts: list[SkiResort]
+    topNewSnowResorts: list[SkiResort]
     avalancheDistribution: dict
     # Global stats (unaffected by filters)
     globalTotalCount: int
@@ -219,13 +229,13 @@ class ResortResponse(BaseModel):
     globalTotalNewSnow: float
     globalTotalOpenKm: float
     # Available filter options
-    availableCountries: List[str]
+    availableCountries: list[str]
     availableRegions: dict  # {country: [region1, region2, ...]}"
 
 
 @app.get("/api/resorts", response_model=ResortResponse)
-@limiter.limit("60/minute") # Rate limit: 60 requests per minute per IP
-async def get_resorts(request: Request): # Request object needed for slowapi
+@limiter.limit("60/minute")  # Rate limit: 60 requests per minute per IP
+async def get_resorts(request: Request):  # Request object needed for slowapi
     """
     Returns ALL resorts in one request. Filtering/sorting is done client-side for instant UX.
     """
@@ -238,77 +248,117 @@ async def get_resorts(request: Request): # Request object needed for slowapi
         FROM `{PROJECT_ID}.{DATASET_ID}.{VIEW_ID}` v
         LEFT JOIN `{PROJECT_ID}.{DATASET_ID}.dim_resorts` d ON v.resort_id = d.resort_id
     """
-    
+
     try:
         query_job = client.query(query)
         rows = query_job.result()
-        
+
         BASE_BERG_URL = "https://www.bergfex.at"
-        
+
         all_resorts = []
         for i, row in enumerate(rows):
             snow_valley = parse_val(row.snow_valley_raw)
             snow_mountain = parse_val(row.snow_mountain_raw)
             new_snow = parse_val(row.new_snow_raw)
-            
+
             mapped_country = map_country(row.country)
-            avalanche_level, avalanche_text = map_avalanche(str(row.avalanche_warning) if row.avalanche_warning is not None else None)
-            
+            avalanche_level, avalanche_text = map_avalanche(
+                str(row.avalanche_warning)
+                if row.avalanche_warning is not None
+                else None
+            )
+
             area_url = row.area_url or ""
-            full_url = f"{BASE_BERG_URL}{area_url}" if area_url.startswith("/") else area_url
-            
-            slopes_open_km = float(parse_val(getattr(row, 'slopes_open_km_raw', 0)))
-            
-            all_resorts.append({
-                "id": str(row.resort_id),
-                "name": row.resort_name or "Unknown Resort",
-                "region": getattr(row, 'region', None) or "Unbekannt",
-                "country": mapped_country,
-                "status": map_status(row.status),
-                "snowValley": float(snow_valley),
-                "snowMountain": float(snow_mountain),
-                "newSnow": float(new_snow),
-                "snowCondition": row.snow_condition or "-",
-                "lastSnowfall": row.last_snowfall or "-",
-                "avalancheWarning": avalanche_level,
-                "avalancheText": avalanche_text,
-                "liftsOpen": row.lifts_open_count or 0,
-                "liftsTotal": row.lifts_total_count or 0,
-                "slopesOpenKm": slopes_open_km,
-                "slopesTotalKm": float(parse_val(getattr(row, 'slopes_total_km', 0))),
-                "slopesOpen": parse_val(getattr(row, 'slopes_open_count', 0)),
-                "slopesTotal": parse_val(getattr(row, 'slopes_total_count', 0)),
-                "slopeCondition": row.slope_condition or "-",
-                "lastUpdate": row.last_update.strftime("%Y-%m-%d %H:%M:%S") if row.scraped_at else "",
-                "altitude": {
-                    "min": parse_val(getattr(row, 'elevation_valley', 0)) or 0,
-                    "max": parse_val(getattr(row, 'elevation_mountain', 0)) or 0
-                },
-                "url": full_url,
-                "latitude": row.lat if getattr(row, 'lat', None) is not None else None,
-                "longitude": row.lon if getattr(row, 'lon', None) is not None else None,
-                # Shred Score Mappings (handle potential NULLs safely)
-                "shredScore": float(row.shred_coefficient) if getattr(row, 'shred_coefficient', None) is not None else None,
-                "scoreFreshness": float(row.freshness) if getattr(row, 'freshness', None) is not None else None,
-                "scoreBaseSnow": float(row.base_snow) if getattr(row, 'base_snow', None) is not None else None,
-                "scoreTerrain": float(row.terrain) if getattr(row, 'terrain', None) is not None else None,
-                "scoreSnowFactor": float(row.snow_factor) if getattr(row, 'snow_factor', None) is not None else None,
-                "scoreSlopeFactor": float(row.slope_factor) if getattr(row, 'slope_factor', None) is not None else None,
-                "scoreCondition": float(row.conditions_factor) if getattr(row, 'conditions_factor', None) is not None else None,
-                "scoreAvalanchePenalty": float(row.avalanche_penalty) if getattr(row, 'avalanche_penalty', None) is not None else None
-            })
+            full_url = (
+                f"{BASE_BERG_URL}{area_url}" if area_url.startswith("/") else area_url
+            )
+
+            slopes_open_km = float(parse_val(getattr(row, "slopes_open_km_raw", 0)))
+
+            all_resorts.append(
+                {
+                    "id": str(row.resort_id),
+                    "name": row.resort_name or "Unknown Resort",
+                    "region": getattr(row, "region", None) or "Unbekannt",
+                    "country": mapped_country,
+                    "status": map_status(row.status),
+                    "snowValley": float(snow_valley),
+                    "snowMountain": float(snow_mountain),
+                    "newSnow": float(new_snow),
+                    "snowCondition": row.snow_condition or "-",
+                    "lastSnowfall": row.last_snowfall or "-",
+                    "avalancheWarning": avalanche_level,
+                    "avalancheText": avalanche_text,
+                    "liftsOpen": row.lifts_open_count or 0,
+                    "liftsTotal": row.lifts_total_count or 0,
+                    "slopesOpenKm": slopes_open_km,
+                    "slopesTotalKm": float(
+                        parse_val(getattr(row, "slopes_total_km", 0))
+                    ),
+                    "slopesOpen": parse_val(getattr(row, "slopes_open_count", 0)),
+                    "slopesTotal": parse_val(getattr(row, "slopes_total_count", 0)),
+                    "slopeCondition": row.slope_condition or "-",
+                    "lastUpdate": row.last_update.strftime("%Y-%m-%d %H:%M:%S")
+                    if row.scraped_at
+                    else "",
+                    "altitude": {
+                        "min": parse_val(getattr(row, "elevation_valley", 0)) or 0,
+                        "max": parse_val(getattr(row, "elevation_mountain", 0)) or 0,
+                    },
+                    "url": full_url,
+                    "latitude": row.lat
+                    if getattr(row, "lat", None) is not None
+                    else None,
+                    "longitude": row.lon
+                    if getattr(row, "lon", None) is not None
+                    else None,
+                    # Shred Score Mappings (handle potential NULLs safely)
+                    "shredScore": float(row.shred_coefficient)
+                    if getattr(row, "shred_coefficient", None) is not None
+                    else None,
+                    "scoreFreshness": float(row.freshness)
+                    if getattr(row, "freshness", None) is not None
+                    else None,
+                    "scoreBaseSnow": float(row.base_snow)
+                    if getattr(row, "base_snow", None) is not None
+                    else None,
+                    "scoreTerrain": float(row.terrain)
+                    if getattr(row, "terrain", None) is not None
+                    else None,
+                    "scoreSnowFactor": float(row.snow_factor)
+                    if getattr(row, "snow_factor", None) is not None
+                    else None,
+                    "scoreSlopeFactor": float(row.slope_factor)
+                    if getattr(row, "slope_factor", None) is not None
+                    else None,
+                    "scoreCondition": float(row.conditions_factor)
+                    if getattr(row, "conditions_factor", None) is not None
+                    else None,
+                    "scoreAvalanchePenalty": float(row.avalanche_penalty)
+                    if getattr(row, "avalanche_penalty", None) is not None
+                    else None,
+                }
+            )
 
         # Calculate stats
         total_count = len(all_resorts)
-        open_count = sum(1 for r in all_resorts if r["status"] in ["Geöffnet", "Teilweise geöffnet"])
-        avg_snow_mountain = sum(r["snowMountain"] for r in all_resorts) / total_count if total_count > 0 else 0
+        open_count = sum(
+            1 for r in all_resorts if r["status"] in ["Geöffnet", "Teilweise geöffnet"]
+        )
+        avg_snow_mountain = (
+            sum(r["snowMountain"] for r in all_resorts) / total_count
+            if total_count > 0
+            else 0
+        )
         total_new_snow = sum(r["newSnow"] for r in all_resorts)
         total_open_km = sum(r["slopesOpenKm"] for r in all_resorts)
 
         # Top lists
-        top_snow = sorted(all_resorts, key=lambda x: x["snowMountain"], reverse=True)[:5]
+        top_snow = sorted(all_resorts, key=lambda x: x["snowMountain"], reverse=True)[
+            :5
+        ]
         top_new_snow = sorted(all_resorts, key=lambda x: x["newSnow"], reverse=True)[:5]
-        
+
         # Avalanche distribution
         avalanche_dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
         for r in all_resorts:
@@ -327,10 +377,10 @@ async def get_resorts(request: Request): # Request object needed for slowapi
                 regions_by_country[c] = set()
             if reg and reg != "Unbekannt":
                 regions_by_country[c].add(reg)
-        
-        available_countries = sorted(list(countries_set))
-        available_regions = {c: sorted(list(regs)) for c, regs in regions_by_country.items()}
-        
+
+        available_countries = sorted(countries_set)
+        available_regions = {c: sorted(regs) for c, regs in regions_by_country.items()}
+
         return {
             "totalCount": total_count,
             "openCount": open_count,
@@ -348,13 +398,14 @@ async def get_resorts(request: Request): # Request object needed for slowapi
             "globalTotalNewSnow": total_new_snow,
             "globalTotalOpenKm": round(total_open_km, 1),
             "availableCountries": available_countries,
-            "availableRegions": available_regions
+            "availableRegions": available_regions,
         }
-        
-    except Exception as e:
-        print(f"Error fetching data: {e}") # Log internal detail
+
+    except Exception as e:  # noqa: BLE001
+        print(f"Error fetching data: {e}")  # Log internal detail
         # Return generic error to user to avoid leaking stack traces
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
 
 @app.get("/api/resorts/{resort_id}/history")
 @limiter.limit("60/minute")
@@ -365,7 +416,7 @@ async def get_resort_history(resort_id: str, request: Request):
 
     # Table name for history view
     HISTORY_VIEW = "vw_resort_metrics_history"
-    
+
     query = f"""
         SELECT 
             measurement_date,
@@ -388,7 +439,7 @@ async def get_resort_history(resort_id: str, request: Request):
         WHERE resort_id = @resort_id
         ORDER BY scraped_at ASC
     """
-    
+
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("resort_id", "STRING", str(resort_id))
@@ -398,39 +449,70 @@ async def get_resort_history(resort_id: str, request: Request):
     try:
         query_job = client.query(query, job_config=job_config)
         rows = query_job.result()
-        
+
         history = []
         for row in rows:
-            history.append({
-                "date": row.measurement_date.isoformat() if row.measurement_date else None,
-                "timestamp": row.scraped_at.isoformat() if row.scraped_at else None,
-                "snowMountain": float(row.snow_mountain_cm) if row.snow_mountain_cm is not None else 0,
-                "snowValley": float(row.snow_valley_cm) if row.snow_valley_cm is not None else 0,
-                "newSnow": float(row.new_snow_cm) if row.new_snow_cm is not None else 0,
-                "liftsOpen": int(row.lifts_open_count) if row.lifts_open_count is not None else 0,
-                "liftsTotal": int(row.lifts_total_count) if row.lifts_total_count is not None else 0,
-                "slopesOpen": float(row.slopes_open_km) if row.slopes_open_km is not None else 0,
-                "slopesTotal": float(row.slopes_total_km) if row.slopes_total_km is not None else 0,
-                "shredScore": float(row.shred_coefficient) if row.shred_coefficient is not None else None,
-                # Components
-                "scoreFreshness": float(row.freshness) if row.freshness is not None else None,
-                "scoreBaseSnow": float(row.base_snow) if row.base_snow is not None else None,
-                "scoreTerrain": float(row.terrain) if row.terrain is not None else None,
-                "scoreConditions": float(row.conditions_factor) if row.conditions_factor is not None else None,
-                "scoreAvalanchePenalty": float(row.avalanche_penalty) if row.avalanche_penalty is not None else None
-            })
+            history.append(
+                {
+                    "date": row.measurement_date.isoformat()
+                    if row.measurement_date
+                    else None,
+                    "timestamp": row.scraped_at.isoformat() if row.scraped_at else None,
+                    "snowMountain": float(row.snow_mountain_cm)
+                    if row.snow_mountain_cm is not None
+                    else 0,
+                    "snowValley": float(row.snow_valley_cm)
+                    if row.snow_valley_cm is not None
+                    else 0,
+                    "newSnow": float(row.new_snow_cm)
+                    if row.new_snow_cm is not None
+                    else 0,
+                    "liftsOpen": int(row.lifts_open_count)
+                    if row.lifts_open_count is not None
+                    else 0,
+                    "liftsTotal": int(row.lifts_total_count)
+                    if row.lifts_total_count is not None
+                    else 0,
+                    "slopesOpen": float(row.slopes_open_km)
+                    if row.slopes_open_km is not None
+                    else 0,
+                    "slopesTotal": float(row.slopes_total_km)
+                    if row.slopes_total_km is not None
+                    else 0,
+                    "shredScore": float(row.shred_coefficient)
+                    if row.shred_coefficient is not None
+                    else None,
+                    # Components
+                    "scoreFreshness": float(row.freshness)
+                    if row.freshness is not None
+                    else None,
+                    "scoreBaseSnow": float(row.base_snow)
+                    if row.base_snow is not None
+                    else None,
+                    "scoreTerrain": float(row.terrain)
+                    if row.terrain is not None
+                    else None,
+                    "scoreConditions": float(row.conditions_factor)
+                    if row.conditions_factor is not None
+                    else None,
+                    "scoreAvalanchePenalty": float(row.avalanche_penalty)
+                    if row.avalanche_penalty is not None
+                    else None,
+                }
+            )
         return history
-        
-    except Exception as e:
+
+    except Exception as e:  # noqa: BLE001
         print(f"Error fetching history for {resort_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
 
 # Catch-all route for SPA (must be last)
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
     if full_path.startswith("api"):
         raise HTTPException(status_code=404, detail="Not Found")
-    
+
     # Try to serve static file if it exists (e.g. favicon.ico, specific assets not in /assets)
     static_file_path = os.path.join("static", full_path)
     if os.path.exists("static") and os.path.isfile(static_file_path):
@@ -441,6 +523,8 @@ async def serve_spa(full_path: str):
     # In local dev without static build, just return 404 or handled by Vite proxy
     raise HTTPException(status_code=404, detail="Frontend not built/served")
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
