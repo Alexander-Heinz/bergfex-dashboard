@@ -1,63 +1,98 @@
 import re
 from typing import Dict, Any
 from server.agent import tools
-from server.agent.llm import get_llm
+
 
 class AgentGraph:
-    """A minimal LangGraph-like orchestrator for Phase 1.
+    """Ski-trip agent graph with LLM reasoning and BigQuery tool fallback.
 
-    Responsibilities:
-    - Parse the user's message for simple structured intent (e.g., minimum snow depth)
-    - Call the controlled tool (query_ski_resorts)
-    - Use the LLM to format the final answer
-
-    This keeps the orchestration explicit and small so additional tools can be
-    added later.
+    Flow:
+    1. Parse user message for intent.
+    2. Execute BigQuery tool.
+    3. Query Gemini LLM, or fall back to deterministic response marked when quota is reached.
     """
 
-    def __init__(self):
-        # LLM is created lazily to allow the application to start without the key.
-        self._llm = None
-
     def _parse_min_snow(self, message: str) -> int:
-        # Heuristic: look for a number followed by 'cm' and 'Schnee' or just 'mehr als X'
+        """Extract a minimum snow depth in cm from the user message."""
         m = re.search(r"(mehr als|>=|>)\s*(\d{1,3})\s*cm", message, re.IGNORECASE)
         if m:
             return int(m.group(2))
         m2 = re.search(r"(\d{1,3})\s*cm", message, re.IGNORECASE)
         if m2:
             return int(m2.group(1))
-        # Default
         return 0
 
-    def _make_prompt(self, user_message: str, tool_result: Dict[str, Any]) -> str:
-        # Hand the tool result back to the LLM as structured text.
+    def _format_answer(
+        self, user_message: str, tool_result: Dict[str, Any], is_quota_fallback: bool = True
+    ) -> str:
+        """Build a plain-text answer from tool data (no LLM needed)."""
         total = tool_result.get("total", 0)
         resorts = tool_result.get("resorts", [])
-        lines = [f"User asked: {user_message}", f"Found {total} resorts matching the criteria:"]
-        for r in resorts[:10]:
-            lines.append(f"- {r['name']} ({r['snowMountain']} cm on the mountain)")
+        min_snow = tool_result.get("min_snow_depth", 0)
+
+        header = ""
+        if is_quota_fallback:
+            header = "⚡ [Hinweis: Gemini-Tageslimit (Free Tier) erreicht – Automatische Antwort aus der BigQuery-Datenbank]\n\n"
+
         if total == 0:
-            lines.append("No resorts matched the criteria.")
+            return (
+                header
+                + f"Ich habe keine Skigebiete mit mindestens {min_snow} cm Schnee "
+                f"in der Datenbank gefunden. Versuche es mit einer niedrigeren Schneehöhe."
+            )
+
+        lines = [
+            header
+            + f"Ich habe {total} Skigebiet{'e' if total != 1 else ''} "
+            f"mit mindestens {min_snow} cm Schnee am Berg gefunden:"
+        ]
+        for r in resorts[:10]:
+            lines.append(f"• {r['name']}: {r['snowMountain']:.0f} cm")
+        if total > 10:
+            lines.append(f"… und {total - 10} weitere.")
         return "\n".join(lines)
 
     def run(self, message: str) -> Dict[str, Any]:
-        # 1) Parse structured params
         min_snow = self._parse_min_snow(message)
-
-        # 2) Call tool
         tool_resp = tools.query_ski_resorts(min_snow_depth=min_snow, limit=10)
 
-        # 3) Ask LLM to produce a user-facing answer
-        # Instantiate LLM (may raise if API key missing)
-        if self._llm is None:
-            self._llm = get_llm()
-
-        prompt = self._make_prompt(message, tool_resp)
-        llm_answer = self._llm.generate(prompt)
+        answer: str
+        is_quota_fallback = False
+        try:
+            from server.agent.llm import get_llm
+            llm = get_llm()
+            answer = llm.generate(message)
+        except Exception as e:
+            err_str = str(e).lower()
+            is_quota_fallback = any(k in err_str for k in ["429", "quota", "resource_exhausted", "limit"])
+            print(f"LLM generation failed ({e}), falling back instantly (is_quota={is_quota_fallback}).")
+            answer = self._format_answer(message, tool_resp, is_quota_fallback=is_quota_fallback)
 
         return {
-            "answer": llm_answer,
+            "answer": answer,
             "tool_calls": 1,
             "tool_result": tool_resp,
+            "is_quota_fallback": is_quota_fallback,
         }
+
+    def run_stream(self, message: str):
+        """Yield text chunks for the given query using Gemini streaming or instant marked fallback."""
+        min_snow = self._parse_min_snow(message)
+        tool_resp = tools.query_ski_resorts(min_snow_depth=min_snow, limit=10)
+
+        yielded_any = False
+        is_quota_fallback = False
+        try:
+            from server.agent.llm import get_llm
+            llm = get_llm()
+            for chunk in llm.generate_stream(message):
+                if chunk:
+                    yielded_any = True
+                    yield chunk
+        except Exception as e:
+            err_str = str(e).lower()
+            is_quota_fallback = any(k in err_str for k in ["429", "quota", "resource_exhausted", "limit"])
+            print(f"LLM streaming failed ({e}), falling back instantly (is_quota={is_quota_fallback}).")
+
+        if not yielded_any:
+            yield self._format_answer(message, tool_resp, is_quota_fallback=True)

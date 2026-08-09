@@ -5,3 +5,5 @@ python-dotenv
 pandas
 pydantic
 slowapi
+google-cloud-secret-manager
+google-genai

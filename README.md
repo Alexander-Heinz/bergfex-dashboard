@@ -62,16 +62,14 @@ Analyse der Schneehöhen-Entwicklung über die Zeit, um Trends abzuleiten.
 ## Installation & Setup 🛠️
 
 ```sh
-# Repository klonen
-git clone <YOUR_GIT_URL>
+# Repository klonen & in Ordner wechseln
 cd bergfex-dashboard
 
-# Abhängigkeiten installieren
-npm install
-
-# Development Server starten (Client & Backend Proxy)
-npm run dev
+# Lokalen Dev-Server starten (installiert automatisch Abhängigkeiten)
+./start-dev.sh
 ```
+
+Weitere Details zum lokalen Setup und der Architektur findest du in [LOCAL_DEVELOPMENT.md](file:///Users/alexanderheinz/Projekte/bergfex-dashboard/LOCAL_DEVELOPMENT.md).
 
 ---
 
