@@ -162,7 +162,8 @@ describe('Index Page', () => {
 
   it('renders multiple resort cards', async () => {
     renderWithProviders(<Index />);
-    expect(await screen.findByText('St. Anton am Arlberg')).toBeInTheDocument();
+    const stAntonElements = await screen.findAllByText('St. Anton am Arlberg');
+    expect(stAntonElements.length).toBeGreaterThan(0);
     expect(await screen.findByText('Kitzbühel')).toBeInTheDocument();
   });
 });
