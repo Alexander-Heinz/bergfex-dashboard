@@ -4,10 +4,6 @@ on:
   pull_request:
     branches:
       - main
-  # Optional: Wenn du manuell Pushes auf main erlaubst (bevor Branch Protection greift)
-  push:
-    branches:
-      - main
 
 jobs:
   frontend-checks:
@@ -20,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install Dependencies
@@ -67,6 +63,5 @@ jobs:
         run: ruff format --check server
 
       - name: Run Pytest
-        # Führe pytest aus, aber ignoriere Fehler, falls (noch) keine Backend-Tests gefunden wurden.
-        # Später kannst du das `|| true` entfernen, wenn pytest zwingend erfolgreich sein soll.
+        # will be added when pytest exist - currently no pytest exist = true as fallback
         run: pytest server || true
