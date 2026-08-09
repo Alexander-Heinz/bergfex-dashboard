@@ -1,26 +1,29 @@
+import json
+import os
+import re
+
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from google.cloud import bigquery
-from dotenv import load_dotenv
-from pydantic import BaseModel
 from google.oauth2 import service_account
 from typing import Optional, List
 import json
 import os
 import re
 from datetime import datetime
+from pydantic import BaseModel
 
 # Security & Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 # Load env vars from parent directory or local
 load_dotenv()
-load_dotenv("../.env") # Try loading from root if exists
-
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+load_dotenv("../.env")  # Try loading from root if exists
 
 
 app = FastAPI()
@@ -52,13 +55,11 @@ if not frontend_url:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, 
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
 
 
 # Configuration
@@ -73,16 +74,19 @@ credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
 if credentials_json:
     try:
         credentials_info = json.loads(credentials_json)
-        credentials = service_account.Credentials.from_service_account_info(credentials_info)
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info
+        )
         client = bigquery.Client(project=PROJECT_ID, credentials=credentials)
         print("Initialized BigQuery client with credentials from env var.")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"Failed to load credentials from env var: {e}")
         # Fallback to default (might fail if no other auth available)
         client = bigquery.Client(project=PROJECT_ID)
 else:
     # Local dev or ADC
     client = bigquery.Client(project=PROJECT_ID)
+
 
 class SkiResort(BaseModel):
     id: str
@@ -108,17 +112,18 @@ class SkiResort(BaseModel):
     # Updated SkiResort model with lat/lon
     altitude: dict
     url: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: float | None = None
+    longitude: float | None = None
     # Shred Score Fields
-    shredScore: Optional[float] = None
-    scoreFreshness: Optional[float] = None
-    scoreBaseSnow: Optional[float] = None
-    scoreTerrain: Optional[float] = None
-    scoreSnowFactor: Optional[float] = None
-    scoreSlopeFactor: Optional[float] = None
-    scoreCondition: Optional[float] = None
-    scoreAvalanchePenalty: Optional[float] = None
+    shredScore: float | None = None
+    scoreFreshness: float | None = None
+    scoreBaseSnow: float | None = None
+    scoreTerrain: float | None = None
+    scoreSnowFactor: float | None = None
+    scoreSlopeFactor: float | None = None
+    scoreCondition: float | None = None
+    scoreAvalanchePenalty: float | None = None
+
 
 def parse_val(val):
     if val is None or val == "":
@@ -126,97 +131,109 @@ def parse_val(val):
     try:
         if isinstance(val, (int, float)):
             return val
-        
+
         # Determine if it's a string
         s = str(val).strip()
-        if not s: 
+        if not s:
             return 0
-            
+
         # Replace comma with dot
-        s = s.replace(',', '.')
-        
+        s = s.replace(",", ".")
+
         # Extract number: match optional digits, dot, digits
-        match = re.search(r'(\d+\.?\d*)', s)
+        match = re.search(r"(\d+\.?\d*)", s)
         if match:
             # Check if original was int-like or float-like
             num = float(match.group(1))
             return int(num) if num.is_integer() else num
         return 0
-    except:
+    except Exception:  # noqa: BLE001
         return 0
 
+
 def map_country(country_name):
-    if not country_name: return "AT"
+    if not country_name:
+        return "AT"
     name = country_name.lower()
-    if "österreich" in name: return "AT"
-    if "deutschland" in name: return "DE"
-    if "schweiz" in name: return "CH"
-    if "italien" in name: return "IT"
-    if "frankreich" in name: return "FR"
-    if "slowenien" in name: return "SI"
-    if "tschechien" in name: return "CZ"
-    if "polen" in name: return "PL"
-    if "slowakei" in name: return "SK"
+    if "österreich" in name:
+        return "AT"
+    if "deutschland" in name:
+        return "DE"
+    if "schweiz" in name:
+        return "CH"
+    if "italien" in name:
+        return "IT"
+    if "frankreich" in name:
+        return "FR"
+    if "slowenien" in name:
+        return "SI"
+    if "tschechien" in name:
+        return "CZ"
+    if "polen" in name:
+        return "PL"
+    if "slowakei" in name:
+        return "SK"
     return "AT"
 
+
 def map_status(status_val):
-    if not status_val: return "Geschlossen"
+    if not status_val:
+        return "Geschlossen"
     s = status_val.lower()
-    if "open" in s: return "Geöffnet"
-    if "closed" in s: return "Geschlossen"
+    if "open" in s:
+        return "Geöffnet"
+    if "closed" in s:
+        return "Geschlossen"
     return "Teilweise geöffnet"
+
 
 def map_avalanche(warning_str):
     """Map avalanche warning string to level (1-5) and text."""
     if not warning_str:
         return 0, "-"
-    
+
     warning_str = warning_str.strip().lower()
-    
+
     # Check for Roman numerals first (common in Bergfex)
     # Match "I", "II", "III", "IV", "V" followed by space or hyphen or end of string
-    roman_map = {
-        "i": 1,
-        "ii": 2, 
-        "iii": 3,
-        "iv": 4, 
-        "v": 5
-    }
-    
+    roman_map = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5}
+
     # Split by space or hyphen to get the first part
-    parts = re.split(r'[\s\-]+', warning_str)
+    parts = re.split(r"[\s\-]+", warning_str)
     first_part = parts[0]
-    
+
     level = 0
     if first_part in roman_map:
         level = roman_map[first_part]
     else:
         # Try to extract Arabic number
-        match = re.search(r'(\d)', warning_str)
+        match = re.search(r"(\d)", warning_str)
         if match:
             level = int(match.group(1))
             level = max(1, min(5, level))  # Clamp to 1-5
-    
+
     # Map level to German text
     AVALANCHE_TEXT = {
         1: "Gering",
         2: "Mäßig",
         3: "Erheblich",
         4: "Groß",
-        5: "Sehr groß"
+        5: "Sehr groß",
     }
     text = AVALANCHE_TEXT.get(level, "-")
-    
+
     return level, text
+
 
 class ResortResponse(BaseModel):
     totalCount: int
     openCount: int
     avgSnowMountain: float
     totalNewSnow: float
-    resorts: List[SkiResort]
-    topSnowResorts: List[SkiResort]
-    topNewSnowResorts: List[SkiResort]
+    totalOpenKm: float
+    resorts: list[SkiResort]
+    topSnowResorts: list[SkiResort]
+    topNewSnowResorts: list[SkiResort]
     avalancheDistribution: dict
     # Global stats (unaffected by filters)
     globalTotalCount: int
@@ -342,7 +359,9 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
         total_open_km = sum(r["slopesOpenKm"] for r in all_resorts)
 
         # Top lists
-        top_snow = sorted(all_resorts, key=lambda x: x["snowMountain"], reverse=True)[:5]
+        top_snow = sorted(all_resorts, key=lambda x: x["snowMountain"], reverse=True)[
+            :5
+        ]
         top_new_snow = sorted(all_resorts, key=lambda x: x["newSnow"], reverse=True)[:5]
 
         # Avalanche distribution
@@ -389,6 +408,7 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
 
     except Exception as e:  # noqa: BLE001
         print(f"Error fetching data: {e}")  # Log internal detail
+        # Return generic error to user to avoid leaking stack traces
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
@@ -485,6 +505,7 @@ async def serve_spa(full_path: str):
     if full_path.startswith("api"):
         raise HTTPException(status_code=404, detail="Not Found")
 
+    # Try to serve static file if it exists (e.g. favicon.ico, specific assets not in /assets)
     static_file_path = os.path.join("static", full_path)
     if os.path.exists("static") and os.path.isfile(static_file_path):
         return FileResponse(static_file_path)
@@ -496,4 +517,5 @@ async def serve_spa(full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

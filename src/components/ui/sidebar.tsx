@@ -634,4 +634,5 @@ export {
   SidebarSeparator,
   SidebarTrigger,
   useSidebar,
-};
+}; // eslint-disable-line react-refresh/only-export-components
+

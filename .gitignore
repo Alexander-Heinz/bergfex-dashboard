@@ -27,3 +27,4 @@ __pycache__/
 sa_key.json
 .env
 .venv/
+venv/

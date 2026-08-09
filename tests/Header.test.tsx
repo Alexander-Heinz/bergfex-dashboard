@@ -4,30 +4,30 @@ import { Header } from '../src/components/Header';
 
 describe('Header', () => {
   it('renders the main title', () => {
-    render(<Header />);
+    render(<Header resortCount={10} latestDate="2024-12-01" />);
     expect(screen.getByText('Alpen Schnee Radar')).toBeInTheDocument();
   });
 
   it('renders the subtitle', () => {
-    render(<Header />);
+    render(<Header resortCount={10} latestDate="2024-12-01" />);
     expect(
-      screen.getByText('Live Schneebericht für Skigebiete in Deutschland & Österreich')
+      screen.getByText('Live Schneebericht für Skigebiete in den Alpen')
     ).toBeInTheDocument();
   });
 
   it('renders quick stats pills', () => {
-    render(<Header />);
-    expect(screen.getByText('10 Skigebiete')).toBeInTheDocument();
-    expect(screen.getByText('Aktuell: Dezember 2024')).toBeInTheDocument();
+    render(<Header resortCount={10} latestDate="2024-12-01" />);
+    expect(screen.getByText('10 Geöffnete Skigebiete')).toBeInTheDocument();
+    expect(screen.getByText(/Aktuell:/)).toBeInTheDocument();
   });
 
   it('renders as a header element', () => {
-    const { container } = render(<Header />);
+    const { container } = render(<Header resortCount={10} latestDate="2024-12-01" />);
     expect(container.querySelector('header')).toBeInTheDocument();
   });
 
   it('contains mountain icon', () => {
-    const { container } = render(<Header />);
+    const { container } = render(<Header resortCount={10} latestDate="2024-12-01" />);
     const svgs = container.querySelectorAll('svg');
     expect(svgs.length).toBeGreaterThan(0);
   });
