@@ -132,7 +132,7 @@ def parse_val(val):
             num = float(match.group(1))
             return int(num) if num.is_integer() else num
         return 0
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 0
 
 def map_country(country_name):
