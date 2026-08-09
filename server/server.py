@@ -1,27 +1,26 @@
+import json
 import os
-from typing import List, Optional
 import re
 from datetime import datetime
+from typing import List, Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from google.cloud import bigquery
-from dotenv import load_dotenv
-from pydantic import BaseModel
 from google.oauth2 import service_account
-import json
+from pydantic import BaseModel
 
 # Security & Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 # Load env vars from parent directory or local
 load_dotenv()
 load_dotenv("../.env") # Try loading from root if exists
-
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 
 app = FastAPI()
@@ -351,7 +350,7 @@ async def get_resorts(request: Request): # Request object needed for slowapi
             "availableRegions": available_regions
         }
         
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"Error fetching data: {e}") # Log internal detail
         # Return generic error to user to avoid leaking stack traces
         raise HTTPException(status_code=500, detail="Internal Server Error")
@@ -421,7 +420,7 @@ async def get_resort_history(resort_id: str, request: Request):
             })
         return history
         
-    except Exception as e:
+    except Exception as e: # noqa: BLE001
         print(f"Error fetching history for {resort_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
