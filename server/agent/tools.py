@@ -1,10 +1,10 @@
-from typing import List, Dict, Any, Optional
 import json
 import os
-import re
+from typing import Any
+
+from dotenv import load_dotenv
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from dotenv import load_dotenv
 
 # Load env vars (same pattern as server.py)
 load_dotenv()
@@ -21,7 +21,7 @@ if _credentials_json:
         _cred_info = json.loads(_credentials_json)
         _credentials = service_account.Credentials.from_service_account_info(_cred_info)
         client = bigquery.Client(project=PROJECT_ID, credentials=_credentials)
-    except Exception as _e:
+    except (ValueError, TypeError, OSError) as _e:
         print(f"Agent tools: failed to load credentials from env var: {_e}")
         client = bigquery.Client(project=PROJECT_ID)
 else:
@@ -39,12 +39,13 @@ def _parse_val(val):
         if not s:
             return 0
         import re as _re
+
         match = _re.search(r"(\d+\.?\d*)", s)
         if match:
             num = float(match.group(1))
             return int(num) if num.is_integer() else num
         return 0
-    except Exception:
+    except (ValueError, TypeError):
         return 0
 
 
@@ -52,19 +53,21 @@ def _parse_val(val):
 MAX_LIMIT = 50
 
 
-def _sanitize_limit(limit: Optional[int]) -> int:
+def _sanitize_limit(limit: int | None) -> int:
     if limit is None:
         return 10
     try:
         l = int(limit)
-    except Exception:
+    except (TypeError, ValueError):
         l = 10
     if l <= 0:
         l = 10
     return min(l, MAX_LIMIT)
 
 
-def query_ski_resorts(min_snow_depth: int = 0, limit: Optional[int] = 10) -> Dict[str, Any]:
+def query_ski_resorts(
+    min_snow_depth: int = 0, limit: int | None = 10
+) -> dict[str, Any]:
     """Controlled tool to query ski resorts from BigQuery.
 
     Parameters are explicit and constrained. The function constructs its
@@ -73,7 +76,7 @@ def query_ski_resorts(min_snow_depth: int = 0, limit: Optional[int] = 10) -> Dic
     # Validate parameters
     try:
         min_snow_depth = int(min_snow_depth)
-    except Exception:
+    except (TypeError, ValueError):
         raise ValueError("min_snow_depth must be an integer")
 
     limit = _sanitize_limit(limit)
@@ -98,7 +101,9 @@ def query_ski_resorts(min_snow_depth: int = 0, limit: Optional[int] = 10) -> Dic
 
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
-            bigquery.ScalarQueryParameter("min_snow_depth", "INT64", int(min_snow_depth))
+            bigquery.ScalarQueryParameter(
+                "min_snow_depth", "INT64", int(min_snow_depth)
+            )
         ]
     )
 
@@ -107,18 +112,20 @@ def query_ski_resorts(min_snow_depth: int = 0, limit: Optional[int] = 10) -> Dic
 
     resorts = []
     for row in rows:
-        snow_mountain = _parse_val(getattr(row, 'snow_mountain_raw', None))
-        snow_valley = _parse_val(getattr(row, 'snow_valley_raw', None))
-        new_snow = _parse_val(getattr(row, 'new_snow_raw', None))
-        resorts.append({
-            "id": str(row.resort_id),
-            "name": row.resort_name or "Unknown",
-            "snowMountain": float(snow_mountain),
-            "snowValley": float(snow_valley),
-            "newSnow": float(new_snow),
-            "latitude": getattr(row, 'lat', None),
-            "longitude": getattr(row, 'lon', None),
-        })
+        snow_mountain = _parse_val(getattr(row, "snow_mountain_raw", None))
+        snow_valley = _parse_val(getattr(row, "snow_valley_raw", None))
+        new_snow = _parse_val(getattr(row, "new_snow_raw", None))
+        resorts.append(
+            {
+                "id": str(row.resort_id),
+                "name": row.resort_name or "Unknown",
+                "snowMountain": float(snow_mountain),
+                "snowValley": float(snow_valley),
+                "newSnow": float(new_snow),
+                "latitude": getattr(row, "lat", None),
+                "longitude": getattr(row, "lon", None),
+            }
+        )
 
     return {
         "total": len(resorts),

@@ -7,13 +7,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from google.api_core import exceptions as google_exceptions
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from typing import Optional, List
-import json
-import os
-import re
-from datetime import datetime
 from pydantic import BaseModel
 
 # Security & Rate Limiting
@@ -25,16 +21,19 @@ from slowapi.util import get_remote_address
 load_dotenv()
 load_dotenv("../.env")  # Try loading from root if exists
 
-
 app = FastAPI()
 
 # Register agent router if available (import is optional)
 try:
     # Importing the router is optional; fail gracefully if something goes wrong.
     from server.agent import router as agent_router
+
     app.include_router(agent_router.router, prefix="/api/agent")
-except Exception as _e:
-    print("Agent router not loaded (this is fine for Phase 1 until branch is merged):", _e)
+except ModuleNotFoundError as exc:
+    if exc.name != "server.agent":
+        raise
+    print("Agent router not loaded (this is fine for Phase 1 until branch is merged):")
+
 
 # Rate Limiter Setup
 limiter = Limiter(key_func=get_remote_address)
@@ -79,8 +78,8 @@ if credentials_json:
         )
         client = bigquery.Client(project=PROJECT_ID, credentials=credentials)
         print("Initialized BigQuery client with credentials from env var.")
-    except Exception as e:  # noqa: BLE001
-        print(f"Failed to load credentials from env var: {e}")
+    except (ValueError, google_exceptions.GoogleAPIError) as exc:
+        print(f"Failed to load credentials from env var: {exc}")
         # Fallback to default (might fail if no other auth available)
         client = bigquery.Client(project=PROJECT_ID)
 else:
@@ -147,7 +146,7 @@ def parse_val(val):
             num = float(match.group(1))
             return int(num) if num.is_integer() else num
         return 0
-    except Exception:  # noqa: BLE001
+    except ValueError:
         return 0
 
 
@@ -242,7 +241,7 @@ class ResortResponse(BaseModel):
     globalTotalNewSnow: float
     globalTotalOpenKm: float
     # Available filter options
-    availableCountries: List[str]
+    availableCountries: list[str]
     availableRegions: dict  # {country: [region1, region2, ...]}
 
 
@@ -276,7 +275,9 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
 
             mapped_country = map_country(row.country)
             avalanche_level, avalanche_text = map_avalanche(
-                str(row.avalanche_warning) if row.avalanche_warning is not None else None
+                str(row.avalanche_warning)
+                if row.avalanche_warning is not None
+                else None
             )
 
             area_url = row.area_url or ""
@@ -303,7 +304,9 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
                     "liftsOpen": row.lifts_open_count or 0,
                     "liftsTotal": row.lifts_total_count or 0,
                     "slopesOpenKm": slopes_open_km,
-                    "slopesTotalKm": float(parse_val(getattr(row, "slopes_total_km", 0))),
+                    "slopesTotalKm": float(
+                        parse_val(getattr(row, "slopes_total_km", 0))
+                    ),
                     "slopesOpen": parse_val(getattr(row, "slopes_open_count", 0)),
                     "slopesTotal": parse_val(getattr(row, "slopes_total_count", 0)),
                     "slopeCondition": row.slope_condition or "-",
@@ -315,8 +318,12 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
                         "max": parse_val(getattr(row, "elevation_mountain", 0)) or 0,
                     },
                     "url": full_url,
-                    "latitude": row.lat if getattr(row, "lat", None) is not None else None,
-                    "longitude": row.lon if getattr(row, "lon", None) is not None else None,
+                    "latitude": row.lat
+                    if getattr(row, "lat", None) is not None
+                    else None,
+                    "longitude": row.lon
+                    if getattr(row, "lon", None) is not None
+                    else None,
                     # Shred Score Mappings (handle potential NULLs safely)
                     "shredScore": float(row.shred_coefficient)
                     if getattr(row, "shred_coefficient", None) is not None
@@ -383,8 +390,8 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
             if reg and reg != "Unbekannt":
                 regions_by_country[c].add(reg)
 
-        available_countries = sorted(list(countries_set))
-        available_regions = {c: sorted(list(regs)) for c, regs in regions_by_country.items()}
+        available_countries = sorted(countries_set)
+        available_regions = {c: sorted(regs) for c, regs in regions_by_country.items()}
 
         return {
             "totalCount": total_count,
@@ -406,9 +413,8 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
             "availableRegions": available_regions,
         }
 
-    except Exception as e:  # noqa: BLE001
-        print(f"Error fetching data: {e}")  # Log internal detail
-        # Return generic error to user to avoid leaking stack traces
+    except (google_exceptions.GoogleAPIError, ValueError, TypeError) as exc:
+        print(f"Error fetching data: {exc}")  # Log internal detail
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
@@ -457,7 +463,9 @@ async def get_resort_history(resort_id: str, request: Request):
         for row in rows:
             history.append(
                 {
-                    "date": row.measurement_date.isoformat() if row.measurement_date else None,
+                    "date": row.measurement_date.isoformat()
+                    if row.measurement_date
+                    else None,
                     "timestamp": row.scraped_at.isoformat() if row.scraped_at else None,
                     "snowMountain": float(row.snow_mountain_cm)
                     if row.snow_mountain_cm is not None
@@ -465,7 +473,9 @@ async def get_resort_history(resort_id: str, request: Request):
                     "snowValley": float(row.snow_valley_cm)
                     if row.snow_valley_cm is not None
                     else 0,
-                    "newSnow": float(row.new_snow_cm) if row.new_snow_cm is not None else 0,
+                    "newSnow": float(row.new_snow_cm)
+                    if row.new_snow_cm is not None
+                    else 0,
                     "liftsOpen": int(row.lifts_open_count)
                     if row.lifts_open_count is not None
                     else 0,
@@ -481,9 +491,15 @@ async def get_resort_history(resort_id: str, request: Request):
                     "shredScore": float(row.shred_coefficient)
                     if row.shred_coefficient is not None
                     else None,
-                    "scoreFreshness": float(row.freshness) if row.freshness is not None else None,
-                    "scoreBaseSnow": float(row.base_snow) if row.base_snow is not None else None,
-                    "scoreTerrain": float(row.terrain) if row.terrain is not None else None,
+                    "scoreFreshness": float(row.freshness)
+                    if row.freshness is not None
+                    else None,
+                    "scoreBaseSnow": float(row.base_snow)
+                    if row.base_snow is not None
+                    else None,
+                    "scoreTerrain": float(row.terrain)
+                    if row.terrain is not None
+                    else None,
                     "scoreConditions": float(row.conditions_factor)
                     if row.conditions_factor is not None
                     else None,
@@ -494,8 +510,8 @@ async def get_resort_history(resort_id: str, request: Request):
             )
         return history
 
-    except Exception as e:  # noqa: BLE001
-        print(f"Error fetching history for {resort_id}: {e}")
+    except (google_exceptions.GoogleAPIError, ValueError, TypeError) as exc:
+        print(f"Error fetching history for {resort_id}: {exc}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 

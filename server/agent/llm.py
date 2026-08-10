@@ -1,5 +1,5 @@
-import os
 import inspect
+import os
 
 GEMINI_API_KEY_ENV = "GEMINI_API_KEY"
 GEMINI_MODEL_ENV = "GEMINI_MODEL"
@@ -40,9 +40,10 @@ class GeminiLLM:
 
         if not self.api_key:
             try:
+                import json
+
                 from google.cloud import secretmanager
                 from google.oauth2 import service_account
-                import json
 
                 project_id = os.getenv("GCP_PROJECT_ID", "bergfex-481612")
                 credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
@@ -64,7 +65,7 @@ class GeminiLLM:
 
                 os.environ[GEMINI_API_KEY_ENV] = self.api_key
                 print("Successfully loaded GEMINI_API_KEY from GCP Secret Manager.")
-            except Exception as e:
+            except (ImportError, ValueError, OSError) as e:
                 print(f"Failed to fetch GEMINI_API_KEY from Secret Manager: {e}")
 
         if not self.api_key:
@@ -75,6 +76,7 @@ class GeminiLLM:
 
     def _get_tools(self):
         from . import tools as tool_mod
+
         return [
             attr
             for attr_name in dir(tool_mod)
@@ -85,6 +87,7 @@ class GeminiLLM:
 
     def _make_client(self):
         from google import genai
+
         # Disable tenacity retries so quota errors fail immediately
         return genai.Client(
             api_key=self.api_key,
@@ -107,10 +110,12 @@ class GeminiLLM:
                 )
                 if response and response.text:
                     return response.text
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError, ImportError) as e:
                 last_err = e
                 if _is_quota_error(e):
-                    print(f"Gemini quota/rate-limit on {model}, trying next model immediately…")
+                    print(
+                        f"Gemini quota/rate-limit on {model}, trying next model immediately…"
+                    )
                     continue
                 # Non-quota errors: also try fallback but log differently
                 print(f"Gemini model {model} error ({e}), trying fallback…")
@@ -141,10 +146,12 @@ class GeminiLLM:
                     return
                 # Stream returned but yielded nothing (e.g. only function calls)
                 last_err = RuntimeError(f"Model {model} returned no text chunks")
-            except Exception as e:
+            except (RuntimeError, OSError, ValueError, ImportError) as e:
                 last_err = e
                 if _is_quota_error(e):
-                    print(f"Gemini quota/rate-limit on {model}, trying next model immediately…")
+                    print(
+                        f"Gemini quota/rate-limit on {model}, trying next model immediately…"
+                    )
                     continue
                 print(f"Streaming model {model} error ({e}), trying fallback…")
                 continue

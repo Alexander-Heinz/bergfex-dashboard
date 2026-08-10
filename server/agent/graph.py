@@ -1,5 +1,6 @@
 import re
-from typing import Dict, Any
+from typing import Any
+
 from server.agent import tools
 
 
@@ -23,7 +24,10 @@ class AgentGraph:
         return 0
 
     def _format_answer(
-        self, user_message: str, tool_result: Dict[str, Any], is_quota_fallback: bool = True
+        self,
+        user_message: str,
+        tool_result: dict[str, Any],
+        is_quota_fallback: bool = True,
     ) -> str:
         """Build a plain-text answer from tool data (no LLM needed)."""
         total = tool_result.get("total", 0)
@@ -42,8 +46,7 @@ class AgentGraph:
             )
 
         lines = [
-            header
-            + f"Ich habe {total} Skigebiet{'e' if total != 1 else ''} "
+            header + f"Ich habe {total} Skigebiet{'e' if total != 1 else ''} "
             f"mit mindestens {min_snow} cm Schnee am Berg gefunden:"
         ]
         for r in resorts[:10]:
@@ -52,7 +55,7 @@ class AgentGraph:
             lines.append(f"… und {total - 10} weitere.")
         return "\n".join(lines)
 
-    def run(self, message: str) -> Dict[str, Any]:
+    def run(self, message: str) -> dict[str, Any]:
         min_snow = self._parse_min_snow(message)
         tool_resp = tools.query_ski_resorts(min_snow_depth=min_snow, limit=10)
 
@@ -60,13 +63,20 @@ class AgentGraph:
         is_quota_fallback = False
         try:
             from server.agent.llm import get_llm
+
             llm = get_llm()
             answer = llm.generate(message)
-        except Exception as e:
+        except (RuntimeError, ImportError, OSError) as e:
             err_str = str(e).lower()
-            is_quota_fallback = any(k in err_str for k in ["429", "quota", "resource_exhausted", "limit"])
-            print(f"LLM generation failed ({e}), falling back instantly (is_quota={is_quota_fallback}).")
-            answer = self._format_answer(message, tool_resp, is_quota_fallback=is_quota_fallback)
+            is_quota_fallback = any(
+                k in err_str for k in ["429", "quota", "resource_exhausted", "limit"]
+            )
+            print(
+                f"LLM generation failed ({e}), falling back instantly (is_quota={is_quota_fallback})."
+            )
+            answer = self._format_answer(
+                message, tool_resp, is_quota_fallback=is_quota_fallback
+            )
 
         return {
             "answer": answer,
@@ -84,15 +94,20 @@ class AgentGraph:
         is_quota_fallback = False
         try:
             from server.agent.llm import get_llm
+
             llm = get_llm()
             for chunk in llm.generate_stream(message):
                 if chunk:
                     yielded_any = True
                     yield chunk
-        except Exception as e:
+        except (RuntimeError, ImportError, OSError) as e:
             err_str = str(e).lower()
-            is_quota_fallback = any(k in err_str for k in ["429", "quota", "resource_exhausted", "limit"])
-            print(f"LLM streaming failed ({e}), falling back instantly (is_quota={is_quota_fallback}).")
+            is_quota_fallback = any(
+                k in err_str for k in ["429", "quota", "resource_exhausted", "limit"]
+            )
+            print(
+                f"LLM streaming failed ({e}), falling back instantly (is_quota={is_quota_fallback})."
+            )
 
         if not yielded_any:
             yield self._format_answer(message, tool_resp, is_quota_fallback=True)
