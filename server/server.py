@@ -1,28 +1,26 @@
+import json
 import os
-from typing import List, Optional
 import re
-from datetime import datetime
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from google.api_core import exceptions as google_exceptions
 from google.cloud import bigquery
-from dotenv import load_dotenv
-from pydantic import BaseModel
 from google.oauth2 import service_account
-import json
+from pydantic import BaseModel
 
 # Security & Rate Limiting
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 # Load env vars from parent directory or local
 load_dotenv()
 load_dotenv("../.env") # Try loading from root if exists
 
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
@@ -69,8 +67,8 @@ if credentials_json:
         credentials = service_account.Credentials.from_service_account_info(credentials_info)
         client = bigquery.Client(project=PROJECT_ID, credentials=credentials)
         print("Initialized BigQuery client with credentials from env var.")
-    except Exception as e:
-        print(f"Failed to load credentials from env var: {e}")
+    except (ValueError, google_exceptions.GoogleAPIError) as exc:
+        print(f"Failed to load credentials from env var: {exc}")
         # Fallback to default (might fail if no other auth available)
         client = bigquery.Client(project=PROJECT_ID)
 else:
@@ -101,17 +99,17 @@ class SkiResort(BaseModel):
     # Updated SkiResort model with lat/lon
     altitude: dict
     url: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: float | None = None
+    longitude: float | None = None
     # Shred Score Fields
-    shredScore: Optional[float] = None
-    scoreFreshness: Optional[float] = None
-    scoreBaseSnow: Optional[float] = None
-    scoreTerrain: Optional[float] = None
-    scoreSnowFactor: Optional[float] = None
-    scoreSlopeFactor: Optional[float] = None
-    scoreCondition: Optional[float] = None
-    scoreAvalanchePenalty: Optional[float] = None
+    shredScore: float | None = None
+    scoreFreshness: float | None = None
+    scoreBaseSnow: float | None = None
+    scoreTerrain: float | None = None
+    scoreSnowFactor: float | None = None
+    scoreSlopeFactor: float | None = None
+    scoreCondition: float | None = None
+    scoreAvalanchePenalty: float | None = None
 
 def parse_val(val):
     if val is None or val == "":
@@ -135,7 +133,7 @@ def parse_val(val):
             num = float(match.group(1))
             return int(num) if num.is_integer() else num
         return 0
-    except:
+    except ValueError:
         return 0
 
 def map_country(country_name):
@@ -208,9 +206,9 @@ class ResortResponse(BaseModel):
     avgSnowMountain: float
     totalNewSnow: float
     totalOpenKm: float
-    resorts: List[SkiResort]
-    topSnowResorts: List[SkiResort]
-    topNewSnowResorts: List[SkiResort]
+    resorts: list[SkiResort]
+    topSnowResorts: list[SkiResort]
+    topNewSnowResorts: list[SkiResort]
     avalancheDistribution: dict
     # Global stats (unaffected by filters)
     globalTotalCount: int
@@ -219,7 +217,7 @@ class ResortResponse(BaseModel):
     globalTotalNewSnow: float
     globalTotalOpenKm: float
     # Available filter options
-    availableCountries: List[str]
+    availableCountries: list[str]
     availableRegions: dict  # {country: [region1, region2, ...]}"
 
 
@@ -328,8 +326,8 @@ async def get_resorts(request: Request): # Request object needed for slowapi
             if reg and reg != "Unbekannt":
                 regions_by_country[c].add(reg)
         
-        available_countries = sorted(list(countries_set))
-        available_regions = {c: sorted(list(regs)) for c, regs in regions_by_country.items()}
+        available_countries = sorted(countries_set)
+        available_regions = {c: sorted(regs) for c, regs in regions_by_country.items()}
         
         return {
             "totalCount": total_count,
@@ -351,9 +349,8 @@ async def get_resorts(request: Request): # Request object needed for slowapi
             "availableRegions": available_regions
         }
         
-    except Exception as e:
-        print(f"Error fetching data: {e}") # Log internal detail
-        # Return generic error to user to avoid leaking stack traces
+    except (google_exceptions.GoogleAPIError, ValueError, TypeError) as exc:
+        print(f"Error fetching data: {exc}")  # Log internal detail
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 @app.get("/api/resorts/{resort_id}/history")
@@ -421,8 +418,8 @@ async def get_resort_history(resort_id: str, request: Request):
             })
         return history
         
-    except Exception as e:
-        print(f"Error fetching history for {resort_id}: {e}")
+    except (google_exceptions.GoogleAPIError, ValueError, TypeError) as exc:
+        print(f"Error fetching history for {resort_id}: {exc}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 # Catch-all route for SPA (must be last)
