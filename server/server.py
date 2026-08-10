@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from google.api_core import exceptions as google_exceptions
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from pydantic import BaseModel
@@ -20,8 +21,19 @@ from slowapi.util import get_remote_address
 load_dotenv()
 load_dotenv("../.env")  # Try loading from root if exists
 
-
 app = FastAPI()
+
+# Register agent router if available (import is optional)
+try:
+    # Importing the router is optional; fail gracefully if something goes wrong.
+    from server.agent import router as agent_router
+
+    app.include_router(agent_router.router, prefix="/api/agent")
+except ModuleNotFoundError as exc:
+    if exc.name != "server.agent":
+        raise
+    print("Agent router not loaded (this is fine for Phase 1 until branch is merged):")
+
 
 # Rate Limiter Setup
 limiter = Limiter(key_func=get_remote_address)
@@ -66,8 +78,8 @@ if credentials_json:
         )
         client = bigquery.Client(project=PROJECT_ID, credentials=credentials)
         print("Initialized BigQuery client with credentials from env var.")
-    except Exception as e:  # noqa: BLE001
-        print(f"Failed to load credentials from env var: {e}")
+    except (ValueError, google_exceptions.GoogleAPIError) as exc:
+        print(f"Failed to load credentials from env var: {exc}")
         # Fallback to default (might fail if no other auth available)
         client = bigquery.Client(project=PROJECT_ID)
 else:
@@ -134,7 +146,7 @@ def parse_val(val):
             num = float(match.group(1))
             return int(num) if num.is_integer() else num
         return 0
-    except Exception:  # noqa: BLE001
+    except ValueError:
         return 0
 
 
@@ -230,7 +242,7 @@ class ResortResponse(BaseModel):
     globalTotalOpenKm: float
     # Available filter options
     availableCountries: list[str]
-    availableRegions: dict  # {country: [region1, region2, ...]}"
+    availableRegions: dict  # {country: [region1, region2, ...]}
 
 
 @app.get("/api/resorts", response_model=ResortResponse)
@@ -401,9 +413,8 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
             "availableRegions": available_regions,
         }
 
-    except Exception as e:  # noqa: BLE001
-        print(f"Error fetching data: {e}")  # Log internal detail
-        # Return generic error to user to avoid leaking stack traces
+    except (google_exceptions.GoogleAPIError, ValueError, TypeError) as exc:
+        print(f"Error fetching data: {exc}")  # Log internal detail
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
@@ -413,8 +424,6 @@ async def get_resort_history(resort_id: str, request: Request):
     """
     Fetch history for a specific resort.
     """
-
-    # Table name for history view
     HISTORY_VIEW = "vw_resort_metrics_history"
 
     query = f"""
@@ -482,7 +491,6 @@ async def get_resort_history(resort_id: str, request: Request):
                     "shredScore": float(row.shred_coefficient)
                     if row.shred_coefficient is not None
                     else None,
-                    # Components
                     "scoreFreshness": float(row.freshness)
                     if row.freshness is not None
                     else None,
@@ -502,8 +510,8 @@ async def get_resort_history(resort_id: str, request: Request):
             )
         return history
 
-    except Exception as e:  # noqa: BLE001
-        print(f"Error fetching history for {resort_id}: {e}")
+    except (google_exceptions.GoogleAPIError, ValueError, TypeError) as exc:
+        print(f"Error fetching history for {resort_id}: {exc}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
@@ -520,7 +528,6 @@ async def serve_spa(full_path: str):
 
     if os.path.exists("static/index.html"):
         return FileResponse("static/index.html")
-    # In local dev without static build, just return 404 or handled by Vite proxy
     raise HTTPException(status_code=404, detail="Frontend not built/served")
 
 
