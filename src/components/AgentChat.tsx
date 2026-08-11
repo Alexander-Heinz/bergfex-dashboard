@@ -11,6 +11,11 @@ import {
   Sparkles,
   RefreshCw,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import "katex/dist/katex.min.css";
 
 interface Message {
   role: "user" | "agent";
@@ -20,10 +25,10 @@ interface Message {
 }
 
 const EXAMPLE_QUERIES = [
-  "🇦🇹 Suche ein offenes Gebiet in Österreich mit ≥ 50 cm Schnee",
-  "🌨️ Wie werden morgen Neuschnee, Wind und Sicht im besten offenen Powder-Gebiet?",
-  "⚡ Zeige Top Powder-Spots mit viel Neuschnee & hohem Shred Score",
-  "🏔️ Schweizer Gebiete mit geringer Lawinenwarnstufe und aktuellem Bulletin",
+  "🚗 Plane meinen Tagestrip ab München für morgen: maximal 3 Stunden Fahrtzeit, offene Pisten, mindestens 50 cm Schnee und wenig Wind.",
+  "🌨️ Wo lohnt sich am Wochenende ein Powder-Tag? Nenne nur Gebiete mit echtem Neuschnee, offenen Pisten und brauchbarer Sicht.",
+  "🛡️ Finde für Samstag ein Schweizer Gebiet mit geringer Lawinenwarnstufe, stabilem Wetter und passendem SLF-Bulletin.",
+  "🔎 Prüfe kritisch, ob aktuell überhaupt verifizierter Skibetrieb möglich ist – und erkläre Datenlücken statt zu raten.",
 ];
 
 const createThreadId = () =>
@@ -38,7 +43,7 @@ export const AgentChat = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "agent",
-      text: "Hallo! Ich bin dein Ski-Trip-Datenagent 🎿 Ich vergleiche Skigebiete und kann ausgewählte Treffer mit Wetterprognosen sowie Schweizer SLF-Lawinenbulletins anreichern.",
+      text: "Hallo! Ich bin dein Ski-Trip-Datenagent 🎿 Ich vergleiche Skigebiete und kann ausgewählte Treffer mit Fahrtzeiten, Wetterprognosen sowie Schweizer SLF-Lawinenbulletins anreichern.",
     },
   ]);
   const [isLoading, setIsLoading] = useState(false);
@@ -281,9 +286,10 @@ export const AgentChat = () => {
                   </span>
                 ) : (
                   <>
-                    <p className="whitespace-pre-wrap leading-relaxed font-normal">
-                      {msg.text}
-                    </p>
+                    <MarkdownMessage
+                      text={msg.text}
+                      inverted={msg.role === "user"}
+                    />
                     {/* Resort result cards if present */}
                     {msg.resorts && msg.resorts.length > 0 && (
                       <div className="mt-3 space-y-1.5 border-t border-border/40 pt-2">
@@ -354,7 +360,7 @@ export const AgentChat = () => {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Frage nach Schnee, Wetter, Liften..."
+              placeholder="Frage nach Schnee, Wetter, Fahrtzeit..."
               disabled={isLoading}
               className="flex-1 text-sm bg-muted/60 rounded-xl px-4 py-2.5 outline-none border border-border/60 focus:border-blue-500 focus:bg-background transition-all placeholder:text-muted-foreground disabled:opacity-50"
             />
@@ -377,3 +383,29 @@ export const AgentChat = () => {
     </>
   );
 };
+
+interface MarkdownMessageProps {
+  text: string;
+  inverted: boolean;
+}
+
+export const MarkdownMessage = ({ text, inverted }: MarkdownMessageProps) => (
+  <div
+    className={`prose prose-sm max-w-none leading-relaxed prose-headings:my-2 prose-headings:text-inherit prose-p:my-1 prose-p:text-inherit prose-strong:text-inherit prose-ul:my-2 prose-ol:my-2 prose-li:my-0 prose-a:text-inherit prose-a:underline prose-code:text-inherit prose-code:before:content-none prose-code:after:content-none prose-table:block prose-table:overflow-x-auto ${
+      inverted ? "prose-invert" : "dark:prose-invert"
+    }`}
+  >
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      skipHtml
+      components={{
+        a: ({ node: _node, ...props }) => (
+          <a {...props} target="_blank" rel="noreferrer noopener" />
+        ),
+      }}
+    >
+      {text}
+    </ReactMarkdown>
+  </div>
+);

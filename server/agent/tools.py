@@ -23,7 +23,7 @@ PROJECT_ID = os.getenv("GCP_PROJECT_ID", "bergfex-481612")
 DATASET_ID = os.getenv("BQ_DATASET_ID", "bergfex_data")
 VIEW_ID = os.getenv("BQ_VIEW_ID", "vw_latest_snow_with_shred_score")
 
-APP_VERSION = "0.2.4"
+APP_VERSION = "0.2.5"
 APP_URL = "https://bergfex-dashboard.onrender.com"
 APP_USER_AGENT = f"bergfex-dashboard/{APP_VERSION}"
 OPEN_METEO_DWD_URL = "https://api.open-meteo.com/v1/dwd-icon"
