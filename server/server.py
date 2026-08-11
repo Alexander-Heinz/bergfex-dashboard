@@ -5,8 +5,6 @@ import re
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from google.api_core import exceptions as google_exceptions
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -20,6 +18,9 @@ from slowapi.util import get_remote_address
 # Load env vars from parent directory or local
 load_dotenv()
 load_dotenv("../.env")  # Try loading from root if exists
+
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
@@ -242,7 +243,7 @@ class ResortResponse(BaseModel):
     globalTotalOpenKm: float
     # Available filter options
     availableCountries: list[str]
-    availableRegions: dict  # {country: [region1, region2, ...]}
+    availableRegions: dict  # {country: [region1, region2, ...]}"
 
 
 @app.get("/api/resorts", response_model=ResortResponse)
