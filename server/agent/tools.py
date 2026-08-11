@@ -5,8 +5,10 @@ import os
 import re
 import time
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from dotenv import load_dotenv
@@ -21,12 +23,23 @@ PROJECT_ID = os.getenv("GCP_PROJECT_ID", "bergfex-481612")
 DATASET_ID = os.getenv("BQ_DATASET_ID", "bergfex_data")
 VIEW_ID = os.getenv("BQ_VIEW_ID", "vw_latest_snow_with_shred_score")
 
+APP_VERSION = "0.2.4"
+APP_URL = "https://bergfex-dashboard.onrender.com"
+APP_USER_AGENT = f"bergfex-dashboard/{APP_VERSION}"
 OPEN_METEO_DWD_URL = "https://api.open-meteo.com/v1/dwd-icon"
 OPEN_METEO_CUSTOMER_URL = "https://customer-api.open-meteo.com/v1/dwd-icon"
 MET_NORWAY_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+ORS_GEOCODE_URL = "https://api.openrouteservice.org/geocode/search"
+ORS_DIRECTIONS_URL = "https://api.openrouteservice.org/v2/directions/driving-car"
 SLF_BULLETIN_URL = "https://aws.slf.ch/api/bulletin/caaml/v4/{language}/geojson"
 MAX_LIMIT = 30
 WEATHER_CACHE_SECONDS = 30 * 60
+ROUTE_CACHE_SECONDS = 60 * 60
+LOCAL_TIMEZONE = ZoneInfo("Europe/Berlin")
+ROUTE_ESTIMATE_GUIDANCE = (
+    "Bei bekannten Start- und Zielorten ist ersatzweise nur eine grobe, klar "
+    "markierte LLM-Zeitspanne ohne Routing und Live-Verkehr zulässig."
+)
 
 
 @tool
@@ -38,7 +51,7 @@ def query_ski_resorts(
     only_open: bool = False,
     limit: int = 10,
 ) -> dict[str, Any]:
-    """Search the Bergfex BigQuery data for ski resorts.
+    """Search current Bergfex ski-resort data.
 
     Use this first for resort recommendations. It returns current resort metrics,
     coordinates, the existing deterministic Shred Score, source timestamps, and
@@ -121,7 +134,7 @@ def query_ski_resorts(
     resorts = [_resort_from_row(row) for row in rows]
 
     return {
-        "source": f"BigQuery {PROJECT_ID}.{DATASET_ID}.{VIEW_ID}",
+        "source": "Bergfex-Schneedaten",
         "total": len(resorts),
         "filters": {
             "minSnowDepthCm": min_snow_depth,
@@ -181,6 +194,91 @@ def get_weather_forecast(
 
 
 @tool
+def get_driving_route(
+    origin: str,
+    destination_latitude: float,
+    destination_longitude: float,
+) -> dict[str, Any]:
+    """Calculate approximate driving distance and duration to one ski resort.
+
+    Use this after selecting a resort when the user explicitly asks about
+    travel time, distance, or a route from a named origin. Results use
+    openrouteservice and OpenStreetMap and do not include live traffic.
+    """
+    api_key = os.getenv("OPENROUTESERVICE_API_KEY")
+    if not api_key:
+        return {
+            "available": False,
+            "error": "configuration_missing",
+            "message": (
+                "Fahrtzeiten sind noch nicht konfiguriert. Dafür muss "
+                "OPENROUTESERVICE_API_KEY gesetzt werden."
+            ),
+            "fallbackGuidance": ROUTE_ESTIMATE_GUIDANCE,
+        }
+
+    origin = origin.strip()
+    if len(origin) < 2:
+        raise ValueError("Origin must contain at least two characters")
+    destination_latitude, destination_longitude = _validated_coordinates(
+        destination_latitude,
+        destination_longitude,
+    )
+
+    try:
+        place = _geocode_place(
+            origin,
+            int(time.monotonic() // ROUTE_CACHE_SECONDS),
+        )
+        if place is None:
+            return {
+                "available": False,
+                "error": "origin_not_found",
+                "message": f"Startort '{origin}' wurde nicht gefunden.",
+                "fallbackGuidance": ROUTE_ESTIMATE_GUIDANCE,
+            }
+        route = _get_route_payload(
+            round(place["latitude"], 5),
+            round(place["longitude"], 5),
+            round(destination_latitude, 5),
+            round(destination_longitude, 5),
+            int(time.monotonic() // ROUTE_CACHE_SECONDS),
+        )
+    except httpx.HTTPError as error:
+        return {
+            "available": False,
+            "error": "route_source_unavailable",
+            "statusCode": _http_error_code(error),
+            "message": "Die Fahrtzeit konnte gerade nicht berechnet werden.",
+            "fallbackGuidance": ROUTE_ESTIMATE_GUIDANCE,
+        }
+
+    summary = _route_summary(route)
+    if summary is None:
+        return {
+            "available": False,
+            "error": "route_not_found",
+            "message": "Für diese Strecke wurde keine Autoroute gefunden.",
+            "fallbackGuidance": ROUTE_ESTIMATE_GUIDANCE,
+        }
+
+    return {
+        "provider": "openrouteservice auf Basis von OpenStreetMap",
+        "source": "openrouteservice / OpenStreetMap",
+        "available": True,
+        "origin": place["label"],
+        "destination": {
+            "latitude": destination_latitude,
+            "longitude": destination_longitude,
+        },
+        "distanceKm": round(summary["distance"] / 1_000, 1),
+        "durationMinutes": round(summary["duration"] / 60),
+        "trafficIncluded": False,
+        "note": "Ungefähre Fahrzeit ohne Live-Verkehr, Pausen oder Wetterlage.",
+    }
+
+
+@tool
 def get_avalanche_bulletin(
     latitude: float,
     longitude: float,
@@ -220,7 +318,12 @@ def get_avalanche_bulletin(
     }
 
 
-AGENT_TOOLS = [query_ski_resorts, get_weather_forecast, get_avalanche_bulletin]
+AGENT_TOOLS = [
+    query_ski_resorts,
+    get_weather_forecast,
+    get_driving_route,
+    get_avalanche_bulletin,
+]
 
 
 @lru_cache(maxsize=1)
@@ -243,7 +346,7 @@ def _get_json(
     headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Fetch one public JSON data source with a bounded timeout."""
-    request_headers = {"User-Agent": "bergfex-dashboard/0.2.2"}
+    request_headers = {"User-Agent": APP_USER_AGENT}
     request_headers.update(headers or {})
     with httpx.Client(timeout=15.0, follow_redirects=True) as client:
         response = client.get(
@@ -314,7 +417,9 @@ def _met_norway_fallback(
         "coordinates": {"latitude": latitude, "longitude": longitude},
         "elevationM": _met_norway_elevation(payload),
         "timezone": "UTC",
-        "updatedAt": payload.get("properties", {}).get("meta", {}).get("updated_at"),
+        "updatedAt": _friendly_timestamp(
+            payload.get("properties", {}).get("meta", {}).get("updated_at")
+        ),
         "limitations": [
             (
                 "Fallback enthält keine verlässliche Schneefallmenge, Schneehöhe, "
@@ -348,7 +453,7 @@ def _weather_user_agent() -> str:
     """Identify the application as required by the MET Norway terms."""
     return os.getenv(
         "WEATHER_USER_AGENT",
-        "bergfex-dashboard/0.2.2 https://bergfex-dashboard.onrender.com",
+        f"{APP_USER_AGENT} {APP_URL}",
     )
 
 
@@ -441,6 +546,76 @@ def _open_meteo_url() -> str:
     )
 
 
+@lru_cache(maxsize=256)
+def _geocode_place(place: str, cache_bucket: int) -> dict[str, Any] | None:
+    """Resolve one user-provided origin with the configured routing provider."""
+    del cache_bucket  # The time bucket exists only to expire cached entries.
+    payload = _get_json(
+        ORS_GEOCODE_URL,
+        params={"text": place, "size": 1, "lang": "de"},
+        headers=_ors_headers(),
+    )
+    features = payload.get("features", [])
+    if not features:
+        return None
+    feature = features[0]
+    coordinates = feature.get("geometry", {}).get("coordinates", [])
+    if len(coordinates) < 2:
+        return None
+    return {
+        "label": feature.get("properties", {}).get("label", place),
+        "latitude": float(coordinates[1]),
+        "longitude": float(coordinates[0]),
+    }
+
+
+@lru_cache(maxsize=512)
+def _get_route_payload(
+    origin_latitude: float,
+    origin_longitude: float,
+    destination_latitude: float,
+    destination_longitude: float,
+    cache_bucket: int,
+) -> dict[str, Any]:
+    """Fetch and briefly cache one car route."""
+    del cache_bucket  # The time bucket exists only to expire cached entries.
+    return _get_json(
+        ORS_DIRECTIONS_URL,
+        params={
+            "start": f"{origin_longitude},{origin_latitude}",
+            "end": f"{destination_longitude},{destination_latitude}",
+        },
+        headers=_ors_headers(),
+    )
+
+
+def _ors_headers() -> dict[str, str]:
+    """Build authenticated headers without placing the API key in the URL."""
+    api_key = os.getenv("OPENROUTESERVICE_API_KEY")
+    if not api_key:
+        raise ValueError("OPENROUTESERVICE_API_KEY is not configured")
+    return {
+        "Authorization": api_key,
+        "User-Agent": APP_USER_AGENT,
+    }
+
+
+def _route_summary(payload: dict[str, Any]) -> dict[str, float] | None:
+    """Support the documented GeoJSON and JSON direction response shapes."""
+    features = payload.get("features", [])
+    if features:
+        summary = features[0].get("properties", {}).get("summary")
+    else:
+        routes = payload.get("routes", [])
+        summary = routes[0].get("summary") if routes else None
+    if not summary or "distance" not in summary or "duration" not in summary:
+        return None
+    return {
+        "distance": float(summary["distance"]),
+        "duration": float(summary["duration"]),
+    }
+
+
 def _resort_from_row(row: Any) -> dict[str, Any]:
     scraped_at = getattr(row, "scraped_at", None)
     return {
@@ -463,7 +638,7 @@ def _resort_from_row(row: Any) -> dict[str, Any]:
         "shredScore": getattr(row, "shred_coefficient", None),
         "latitude": getattr(row, "lat", None),
         "longitude": getattr(row, "lon", None),
-        "dataTimestamp": scraped_at.isoformat() if scraped_at else None,
+        "dataTimestamp": _friendly_timestamp(scraped_at),
     }
 
 
@@ -719,3 +894,21 @@ def _nested_number(item: dict[str, Any], *keys: str) -> float:
 def _meters_per_second_to_kmh(value: float | None) -> float | None:
     """Convert MET Norway wind units to the dashboard's km/h convention."""
     return round(value * 3.6, 1) if value is not None else None
+
+
+def _friendly_timestamp(value: Any) -> str | None:
+    """Format source timestamps for German end users instead of infrastructure logs."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+    else:
+        return str(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(LOCAL_TIMEZONE).strftime("%d.%m.%Y, %H:%M Uhr")
