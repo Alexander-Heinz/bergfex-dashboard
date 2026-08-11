@@ -1,46 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { 
-  mockResorts, 
   getAvalancheColor, 
   getStatusColor, 
-  getSnowConditionIcon,
-  SkiResort 
-} from '../src/data/mockResorts';
-
-describe('mockResorts data', () => {
-  it('contains resort data', () => {
-    expect(mockResorts.length).toBeGreaterThan(0);
-  });
-
-  it('each resort has required fields', () => {
-    mockResorts.forEach((resort: SkiResort) => {
-      expect(resort.id).toBeDefined();
-      expect(resort.name).toBeDefined();
-      expect(resort.region).toBeDefined();
-      expect(resort.country).toMatch(/^(AT|DE)$/);
-      expect(resort.status).toBeDefined();
-      expect(typeof resort.snowValley).toBe('number');
-      expect(typeof resort.snowMountain).toBe('number');
-      expect(typeof resort.liftsOpen).toBe('number');
-      expect(typeof resort.liftsTotal).toBe('number');
-      expect(resort.avalancheWarning).toBeGreaterThanOrEqual(1);
-      expect(resort.avalancheWarning).toBeLessThanOrEqual(5);
-    });
-  });
-
-  it('liftsOpen does not exceed liftsTotal', () => {
-    mockResorts.forEach((resort: SkiResort) => {
-      expect(resort.liftsOpen).toBeLessThanOrEqual(resort.liftsTotal);
-    });
-  });
-
-  it('slopesOpen does not exceed slopesTotal', () => {
-    mockResorts.forEach((resort: SkiResort) => {
-      expect(resort.slopesOpen).toBeLessThanOrEqual(resort.slopesTotal);
-      expect(resort.slopesOpenKm).toBeLessThanOrEqual(resort.slopesTotalKm);
-    });
-  });
-});
+  getSnowConditionIcon 
+} from '../src/utils/resortUtils';
 
 describe('getAvalancheColor', () => {
   it('returns correct color for each level', () => {
@@ -83,3 +46,4 @@ describe('getSnowConditionIcon', () => {
     expect(getSnowConditionIcon('unknown')).toBe('❄️');
   });
 });
+

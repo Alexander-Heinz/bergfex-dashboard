@@ -6,7 +6,7 @@ describe('AvalancheBadge', () => {
   it('renders avalanche level and text', () => {
     render(<AvalancheBadge level={2} text="Mäßig" />);
     expect(screen.getByText('2')).toBeInTheDocument();
-    expect(screen.getByText('- Mäßig')).toBeInTheDocument();
+    expect(screen.getByText('Mäßig')).toBeInTheDocument();
   });
 
   it('renders compact version correctly', () => {

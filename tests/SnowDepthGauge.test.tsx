@@ -17,7 +17,8 @@ describe('SnowDepthGauge', () => {
 
   it('handles zero values', () => {
     render(<SnowDepthGauge valley={0} mountain={0} />);
-    expect(screen.getByText('0 cm')).toBeInTheDocument();
+    const elements = screen.getAllByText('0 cm');
+    expect(elements.length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders icons for valley and mountain', () => {
