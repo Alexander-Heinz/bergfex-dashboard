@@ -23,14 +23,16 @@ VIEW_ID = os.getenv("BQ_VIEW_ID", "vw_latest_snow_with_shred_score")
 
 OPEN_METEO_DWD_URL = "https://api.open-meteo.com/v1/dwd-icon"
 OPEN_METEO_CUSTOMER_URL = "https://customer-api.open-meteo.com/v1/dwd-icon"
+MET_NORWAY_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
 SLF_BULLETIN_URL = "https://aws.slf.ch/api/bulletin/caaml/v4/{language}/geojson"
 MAX_LIMIT = 30
-WEATHER_CACHE_SECONDS = 15 * 60
+WEATHER_CACHE_SECONDS = 30 * 60
 
 
 @tool
 def query_ski_resorts(
     min_snow_depth: int = 0,
+    min_new_snow: int = 0,
     country: str | None = None,
     max_avalanche_level: int | None = None,
     only_open: bool = False,
@@ -39,11 +41,14 @@ def query_ski_resorts(
     """Search the Bergfex BigQuery data for ski resorts.
 
     Use this first for resort recommendations. It returns current resort metrics,
-    coordinates, the existing deterministic Shred Score, and source timestamps.
-    Country accepts names or ISO codes such as AT, DE, and CH. The function only
-    runs a fixed parameterized query; it never executes model-generated SQL.
+    coordinates, the existing deterministic Shred Score, source timestamps, and
+    data-quality notes. Use min_new_snow for requests that explicitly require
+    fresh snow. Country accepts names or ISO codes such as AT, DE, and CH. The
+    function only runs a fixed parameterized query; it never executes
+    model-generated SQL.
     """
     min_snow_depth = _bounded_int(min_snow_depth, minimum=0, maximum=1_000)
+    min_new_snow = _bounded_int(min_new_snow, minimum=0, maximum=1_000)
     limit = _bounded_int(limit, minimum=1, maximum=MAX_LIMIT)
     country_pattern = _country_pattern(country)
     avalanche_level = _optional_avalanche_level(max_avalanche_level)
@@ -74,6 +79,10 @@ def query_ski_resorts(
           REGEXP_EXTRACT(COALESCE(v.snow_mountain_raw, ''), r'(\\d+\\.?\\d*)')
           AS FLOAT64
         ) AS snow_mountain_cm,
+        SAFE_CAST(
+          REGEXP_EXTRACT(COALESCE(v.new_snow_raw, ''), r'(\\d+\\.?\\d*)')
+          AS FLOAT64
+        ) AS new_snow_cm,
         CASE
           WHEN REGEXP_CONTAINS(UPPER(COALESCE(v.avalanche_warning, '')), r'(^|[ -])V([ -]|$)') THEN 5
           WHEN REGEXP_CONTAINS(UPPER(COALESCE(v.avalanche_warning, '')), r'(^|[ -])IV([ -]|$)') THEN 4
@@ -89,6 +98,7 @@ def query_ski_resorts(
     SELECT *
     FROM resorts
     WHERE COALESCE(snow_mountain_cm, 0) >= @min_snow_depth
+      AND COALESCE(new_snow_cm, 0) >= @min_new_snow
       AND (@country_pattern IS NULL OR LOWER(COALESCE(country, '')) LIKE @country_pattern)
       AND (@only_open = FALSE OR LOWER(COALESCE(status, '')) LIKE '%open%')
       AND (@max_avalanche_level IS NULL OR avalanche_level BETWEEN 1 AND @max_avalanche_level)
@@ -99,6 +109,7 @@ def query_ski_resorts(
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("min_snow_depth", "INT64", min_snow_depth),
+            bigquery.ScalarQueryParameter("min_new_snow", "INT64", min_new_snow),
             bigquery.ScalarQueryParameter("country_pattern", "STRING", country_pattern),
             bigquery.ScalarQueryParameter("only_open", "BOOL", bool(only_open)),
             bigquery.ScalarQueryParameter(
@@ -114,10 +125,13 @@ def query_ski_resorts(
         "total": len(resorts),
         "filters": {
             "minSnowDepthCm": min_snow_depth,
+            "minNewSnowCm": min_new_snow,
             "country": country,
             "maxAvalancheLevel": avalanche_level,
             "onlyOpen": only_open,
         },
+        "qualityNotes": _resort_quality_notes(resorts, only_open=bool(only_open)),
+        "sharedMetricGroups": _shared_metric_groups(resorts),
         "resorts": resorts,
     }
 
@@ -129,16 +143,15 @@ def get_weather_forecast(
     elevation: float | None = None,
     forecast_days: int = 3,
 ) -> dict[str, Any]:
-    """Get a DWD ICON weather forecast from Open-Meteo for a resort coordinate.
+    """Get an alpine weather forecast with a public-provider fallback.
 
-    Use this after selecting one or a few resorts. It supplies daily snowfall,
-    precipitation probability, temperature, gusts, sunshine, visibility, snow
-    depth, and freezing-level ranges. No API key is required.
+    Open-Meteo DWD ICON is preferred because it supplies snow-specific fields.
+    If that service is unavailable or rate-limited, MET Norway supplies a
+    reduced forecast with temperature, precipitation, wind, and symbols.
     """
     latitude, longitude = _validated_coordinates(latitude, longitude)
     forecast_days = _bounded_int(forecast_days, minimum=1, maximum=7)
     elevation = float(elevation) if elevation is not None else None
-    source_url = _open_meteo_url()
     try:
         payload = _get_weather_payload(
             round(latitude, 5),
@@ -147,23 +160,18 @@ def get_weather_forecast(
             forecast_days,
             int(time.monotonic() // WEATHER_CACHE_SECONDS),
         )
-    except httpx.HTTPStatusError as exc:
-        status_code = exc.response.status_code
-        return {
-            "provider": "Open-Meteo DWD ICON",
-            "source": source_url,
-            "available": False,
-            "error": "rate_limited" if status_code == 429 else "upstream_error",
-            "statusCode": status_code,
-            "message": (
-                "Die Wetterquelle ist gerade gedrosselt oder nicht verfügbar. "
-                "Bitte ohne Wetterdaten fortfahren und später erneut versuchen."
-            ),
-        }
+    except httpx.HTTPError as primary_error:
+        return _met_norway_fallback(
+            latitude,
+            longitude,
+            elevation,
+            forecast_days,
+            primary_error,
+        )
 
     return {
         "provider": "Open-Meteo DWD ICON",
-        "source": source_url,
+        "source": _open_meteo_url(),
         "available": True,
         "coordinates": {"latitude": latitude, "longitude": longitude},
         "elevationM": payload.get("elevation"),
@@ -229,13 +237,19 @@ def _get_bigquery_client() -> bigquery.Client:
     return bigquery.Client(project=PROJECT_ID, credentials=credentials)
 
 
-def _get_json(url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+def _get_json(
+    url: str,
+    params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Fetch one public JSON data source with a bounded timeout."""
+    request_headers = {"User-Agent": "bergfex-dashboard/0.2.2"}
+    request_headers.update(headers or {})
     with httpx.Client(timeout=15.0, follow_redirects=True) as client:
         response = client.get(
             url,
             params=params,
-            headers={"User-Agent": "bergfex-dashboard/0.2.1"},
+            headers=request_headers,
         )
         response.raise_for_status()
         payload = response.json()
@@ -273,6 +287,151 @@ def _get_weather_payload(
     return _get_json(_open_meteo_url(), params=params)
 
 
+def _met_norway_fallback(
+    latitude: float,
+    longitude: float,
+    elevation: float | None,
+    forecast_days: int,
+    primary_error: httpx.HTTPError,
+) -> dict[str, Any]:
+    """Return a reduced MET Norway forecast when Open-Meteo fails."""
+    try:
+        payload = _get_met_norway_payload(
+            round(latitude, 4),
+            round(longitude, 4),
+            elevation,
+            int(time.monotonic() // WEATHER_CACHE_SECONDS),
+        )
+    except httpx.HTTPError as fallback_error:
+        return _weather_unavailable(primary_error, fallback_error)
+
+    return {
+        "provider": "MET Norway Locationforecast",
+        "source": MET_NORWAY_URL,
+        "available": True,
+        "fallbackFrom": "Open-Meteo DWD ICON",
+        "fallbackReason": _http_error_code(primary_error),
+        "coordinates": {"latitude": latitude, "longitude": longitude},
+        "elevationM": _met_norway_elevation(payload),
+        "timezone": "UTC",
+        "updatedAt": payload.get("properties", {}).get("meta", {}).get("updated_at"),
+        "limitations": [
+            (
+                "Fallback enthält keine verlässliche Schneefallmenge, Schneehöhe, "
+                "Sichtweite oder Gefriergrenze."
+            ),
+        ],
+        "daily": _daily_met_norway(payload, forecast_days),
+    }
+
+
+@lru_cache(maxsize=256)
+def _get_met_norway_payload(
+    latitude: float,
+    longitude: float,
+    elevation: float | None,
+    cache_bucket: int,
+) -> dict[str, Any]:
+    """Cache MET Norway forecasts and use cache-friendly coordinates."""
+    del cache_bucket  # The time bucket exists only to expire cached entries.
+    params: dict[str, Any] = {"lat": latitude, "lon": longitude}
+    if elevation is not None:
+        params["altitude"] = round(elevation)
+    return _get_json(
+        MET_NORWAY_URL,
+        params=params,
+        headers={"User-Agent": _weather_user_agent()},
+    )
+
+
+def _weather_user_agent() -> str:
+    """Identify the application as required by the MET Norway terms."""
+    return os.getenv(
+        "WEATHER_USER_AGENT",
+        "bergfex-dashboard/0.2.2 https://bergfex-dashboard.onrender.com",
+    )
+
+
+def _weather_unavailable(
+    primary_error: httpx.HTTPError,
+    fallback_error: httpx.HTTPError,
+) -> dict[str, Any]:
+    """Describe both provider failures without aborting the agent stream."""
+    return {
+        "provider": "Open-Meteo DWD ICON + MET Norway Locationforecast",
+        "available": False,
+        "error": "weather_sources_unavailable",
+        "primaryStatusCode": _http_error_code(primary_error),
+        "fallbackStatusCode": _http_error_code(fallback_error),
+        "message": (
+            "Beide Wetterquellen sind vorübergehend nicht verfügbar. Bitte "
+            "ohne Wetterdaten fortfahren und später erneut versuchen."
+        ),
+    }
+
+
+def _http_error_code(error: httpx.HTTPError) -> int | str:
+    """Return a stable status value for tool output and tests."""
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code
+    return type(error).__name__
+
+
+def _met_norway_elevation(payload: dict[str, Any]) -> float | None:
+    """Read elevation from the GeoJSON coordinate tuple when present."""
+    coordinates = payload.get("geometry", {}).get("coordinates", [])
+    return float(coordinates[2]) if len(coordinates) > 2 else None
+
+
+def _daily_met_norway(
+    payload: dict[str, Any], forecast_days: int
+) -> list[dict[str, Any]]:
+    """Compact hourly MET Norway data into honest daily summaries."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    timeseries = payload.get("properties", {}).get("timeseries", [])
+    for item in timeseries:
+        date = str(item.get("time", ""))[:10]
+        if date:
+            grouped.setdefault(date, []).append(item.get("data", {}))
+
+    rows: list[dict[str, Any]] = []
+    for date, items in list(grouped.items())[:forecast_days]:
+        details = [item.get("instant", {}).get("details", {}) for item in items]
+        symbols = {
+            item.get("next_1_hours", {}).get("summary", {}).get("symbol_code")
+            for item in items
+        }
+        rows.append(
+            {
+                "date": date,
+                "temperatureMinC": _values_aggregate(details, "air_temperature", min),
+                "temperatureMaxC": _values_aggregate(details, "air_temperature", max),
+                "precipitationSumMm": round(
+                    sum(
+                        _nested_number(
+                            item, "next_1_hours", "details", "precipitation_amount"
+                        )
+                        for item in items
+                    ),
+                    1,
+                ),
+                "windSpeedMaxKmh": _meters_per_second_to_kmh(
+                    _values_aggregate(details, "wind_speed", max)
+                ),
+                "windGustMaxKmh": _meters_per_second_to_kmh(
+                    _values_aggregate(details, "wind_speed_of_gust", max)
+                ),
+                "weatherSymbols": sorted(symbol for symbol in symbols if symbol),
+                "snowfallSumCm": None,
+                "minimumVisibilityM": None,
+                "maximumSnowDepthM": None,
+                "freezingLevelMinM": None,
+                "freezingLevelMaxM": None,
+            }
+        )
+    return rows
+
+
 def _open_meteo_url() -> str:
     """Use reserved Open-Meteo capacity when an optional customer key exists."""
     return (
@@ -306,6 +465,43 @@ def _resort_from_row(row: Any) -> dict[str, Any]:
         "longitude": getattr(row, "lon", None),
         "dataTimestamp": scraped_at.isoformat() if scraped_at else None,
     }
+
+
+def _resort_quality_notes(resorts: list[dict[str, Any]], only_open: bool) -> list[str]:
+    """Expose caveats the model must not silently reinterpret."""
+    notes: list[str] = []
+    if resorts and not any(resort["newSnowCm"] > 0 for resort in resorts):
+        notes.append(
+            "Kein Treffer meldet positiven Neuschnee. Nicht als Powder- oder "
+            "Neuschnee-Empfehlung darstellen."
+        )
+    if only_open:
+        notes.append(
+            "Status 'open' kann außerhalb der Wintersaison Sommerbetrieb bedeuten. "
+            "Skibetrieb nur bei zusätzlichen Pistendaten behaupten."
+        )
+    if _shared_metric_groups(resorts):
+        notes.append(
+            "Mehrere Treffer teilen identische Regions-, Schnee- und Liftdaten. "
+            "Als mögliche Teilgebiete gruppieren statt als unabhängige Messungen."
+        )
+    return notes
+
+
+def _shared_metric_groups(resorts: list[dict[str, Any]]) -> list[list[str]]:
+    """Find likely sub-resorts backed by the same aggregate measurements."""
+    groups: dict[tuple[Any, ...], list[str]] = {}
+    for resort in resorts:
+        key = (
+            resort["country"],
+            resort["region"],
+            resort["snowMountainCm"],
+            resort["newSnowCm"],
+            resort["liftsOpen"],
+            resort["liftsTotal"],
+        )
+        groups.setdefault(key, []).append(resort["name"])
+    return [names for names in groups.values() if len(names) > 1]
 
 
 def _daily_weather(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -500,3 +696,26 @@ def _aggregate_hourly(
 
 def _seconds_to_hours(value: Any) -> float | None:
     return round(float(value) / 3_600, 1) if value is not None else None
+
+
+def _values_aggregate(
+    items: list[dict[str, Any]], key: str, operation: Any
+) -> float | None:
+    """Aggregate numeric values while ignoring absent forecast fields."""
+    values = [float(item[key]) for item in items if item.get(key) is not None]
+    return operation(values) if values else None
+
+
+def _nested_number(item: dict[str, Any], *keys: str) -> float:
+    """Read an optional nested numeric field as zero for summation."""
+    value: Any = item
+    for key in keys:
+        if not isinstance(value, dict):
+            return 0.0
+        value = value.get(key)
+    return float(value) if value is not None else 0.0
+
+
+def _meters_per_second_to_kmh(value: float | None) -> float | None:
+    """Convert MET Norway wind units to the dashboard's km/h convention."""
+    return round(value * 3.6, 1) if value is not None else None

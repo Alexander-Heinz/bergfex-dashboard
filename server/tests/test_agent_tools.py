@@ -9,15 +9,18 @@ from server.agent import tools
 from server.agent.router import _thread_id
 from server.agent.tools import (
     _country_pattern,
+    _daily_met_norway,
     _daily_weather,
     _geometry_contains,
+    _resort_quality_notes,
+    _shared_metric_groups,
 )
 
 
-def test_weather_rate_limit_returns_a_tool_result(
+def test_weather_rate_limit_uses_met_norway_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A throttled public API must not terminate the LangGraph stream."""
+    """A throttled primary API should still return a reduced forecast."""
     request = httpx.Request("GET", tools.OPEN_METEO_DWD_URL)
     response = httpx.Response(429, request=request)
     error = httpx.HTTPStatusError(
@@ -30,14 +33,78 @@ def test_weather_rate_limit_returns_a_tool_result(
         raise error
 
     monkeypatch.setattr(tools, "_get_weather_payload", raise_rate_limit)
+    monkeypatch.setattr(
+        tools,
+        "_get_met_norway_payload",
+        lambda *args, **kwargs: {
+            "geometry": {"coordinates": [7.7, 46.4, 1_500]},
+            "properties": {
+                "meta": {"updated_at": "2026-01-15T00:00:00Z"},
+                "timeseries": [
+                    {
+                        "time": "2026-01-15T00:00:00Z",
+                        "data": {
+                            "instant": {
+                                "details": {
+                                    "air_temperature": -3.0,
+                                    "wind_speed": 5.0,
+                                }
+                            },
+                            "next_1_hours": {
+                                "summary": {"symbol_code": "snow"},
+                                "details": {"precipitation_amount": 1.5},
+                            },
+                        },
+                    }
+                ],
+            },
+        },
+    )
+
+    result = tools.get_weather_forecast.invoke(
+        {"latitude": 46.4, "longitude": 7.7, "forecast_days": 3}
+    )
+
+    assert result["available"] is True
+    assert result["provider"] == "MET Norway Locationforecast"
+    assert result["fallbackReason"] == 429
+    assert result["daily"][0]["windSpeedMaxKmh"] == 18.0
+
+
+def test_both_weather_failures_return_a_tool_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two unavailable providers must not terminate the LangGraph stream."""
+    request = httpx.Request("GET", tools.OPEN_METEO_DWD_URL)
+    primary_error = httpx.HTTPStatusError(
+        "rate limited",
+        request=request,
+        response=httpx.Response(429, request=request),
+    )
+    fallback_request = httpx.Request("GET", tools.MET_NORWAY_URL)
+    fallback_error = httpx.HTTPStatusError(
+        "unavailable",
+        request=fallback_request,
+        response=httpx.Response(503, request=fallback_request),
+    )
+
+    def raise_primary(*args, **kwargs):
+        raise primary_error
+
+    def raise_fallback(*args, **kwargs):
+        raise fallback_error
+
+    monkeypatch.setattr(tools, "_get_weather_payload", raise_primary)
+    monkeypatch.setattr(tools, "_get_met_norway_payload", raise_fallback)
 
     result = tools.get_weather_forecast.invoke(
         {"latitude": 46.4, "longitude": 7.7, "forecast_days": 3}
     )
 
     assert result["available"] is False
-    assert result["error"] == "rate_limited"
-    assert result["statusCode"] == 429
+    assert result["error"] == "weather_sources_unavailable"
+    assert result["primaryStatusCode"] == 429
+    assert result["fallbackStatusCode"] == 503
 
 
 def test_resort_tool_uses_parameters_and_maps_rows(
@@ -80,13 +147,22 @@ def test_resort_tool_uses_parameters_and_maps_rows(
                 and parameter.value == "%österreich%' or true --%"
                 for parameter in job_config.query_parameters
             )
+            assert any(
+                parameter.name == "min_new_snow" and parameter.value == 5
+                for parameter in job_config.query_parameters
+            )
             return FakeQueryJob()
 
     fake_client = FakeClient()
     monkeypatch.setattr(tools, "_get_bigquery_client", lambda: fake_client)
 
     result = tools.query_ski_resorts.invoke(
-        {"country": "Österreich%' OR TRUE --", "min_snow_depth": 50, "limit": 3}
+        {
+            "country": "Österreich%' OR TRUE --",
+            "min_snow_depth": 50,
+            "min_new_snow": 5,
+            "limit": 3,
+        }
     )
 
     assert "OR TRUE" not in fake_client.query_text
@@ -135,6 +211,58 @@ def test_daily_weather_compacts_hourly_values() -> None:
     assert result[0]["minimumVisibilityM"] == 1_200.0
     assert result[0]["maximumSnowDepthM"] == 0.85
     assert result[0]["freezingLevelMinM"] == 1_100.0
+
+
+def test_daily_met_norway_does_not_invent_snow_fields() -> None:
+    payload = {
+        "properties": {
+            "timeseries": [
+                {
+                    "time": "2026-01-15T00:00:00Z",
+                    "data": {
+                        "instant": {
+                            "details": {
+                                "air_temperature": -4.0,
+                                "wind_speed": 2.0,
+                                "wind_speed_of_gust": 7.0,
+                            }
+                        },
+                        "next_1_hours": {
+                            "summary": {"symbol_code": "snow"},
+                            "details": {"precipitation_amount": 2.0},
+                        },
+                    },
+                }
+            ]
+        }
+    }
+
+    result = _daily_met_norway(payload, forecast_days=1)
+
+    assert result[0]["precipitationSumMm"] == 2.0
+    assert result[0]["windGustMaxKmh"] == 25.2
+    assert result[0]["snowfallSumCm"] is None
+    assert result[0]["minimumVisibilityM"] is None
+
+
+def test_resort_quality_notes_flag_shared_zero_snow_metrics() -> None:
+    resorts = [
+        {
+            "name": name,
+            "country": "Österreich",
+            "region": "Zillertal",
+            "snowMountainCm": 305.0,
+            "newSnowCm": 0.0,
+            "liftsOpen": 9,
+            "liftsTotal": 63,
+        }
+        for name in ("Eggalm", "Rastkogel")
+    ]
+
+    notes = _resort_quality_notes(resorts, only_open=True)
+
+    assert len(notes) == 3
+    assert _shared_metric_groups(resorts) == [["Eggalm", "Rastkogel"]]
 
 
 @pytest.mark.parametrize(
