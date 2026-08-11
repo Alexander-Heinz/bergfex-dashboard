@@ -21,6 +21,7 @@ load_dotenv("../.env")  # Try loading from root if exists
 
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
 app = FastAPI()
 
 # Register agent router if available (import is optional)
