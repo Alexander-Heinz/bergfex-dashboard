@@ -11,21 +11,27 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
+from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from server.agent.llm import get_model
-from server.agent.tools import AGENT_TOOLS
+from server.agent.tools import (
+    AGENT_TOOLS,
+    get_avalanche_bulletin,
+    get_weather_forecast,
+    query_ski_resorts,
+)
 
 SYSTEM_PROMPT = """
 Du bist ein deutschsprachiger Ski-Trip-Datenagent. Antworte kompakt, konkret und
 kennzeichne Datenquellen sowie Zeitstände. Nutze query_ski_resorts zuerst, wenn
-es um Empfehlungen oder den Vergleich von Skigebieten geht. Reichere nur eine
-kleine Shortlist mit get_weather_forecast und – für Schweizer Koordinaten –
-get_avalanche_bulletin an. Der Shred Score wird von der bestehenden Datenpipeline
-berechnet; erfinde oder verändere ihn nicht.
+es um Empfehlungen oder den Vergleich von Skigebieten geht. Wetter- und
+Lawinenbulletin-Tools werden nur bei einer ausdrücklichen Nutzerfrage danach
+angeboten. Der Shred Score wird von der bestehenden Datenpipeline berechnet;
+erfinde oder verändere ihn nicht.
 
 Wichtige Grenzen:
 - Es gibt noch kein Routing- oder Fahrzeit-Tool. Behaupte deshalb keine
@@ -76,17 +82,23 @@ class AgentGraph:
 @lru_cache(maxsize=1)
 def _compiled_graph() -> CompiledStateGraph:
     """Create one stateful ReAct graph per backend process."""
-    model_with_tools = get_model().bind_tools(AGENT_TOOLS)
+    model = get_model()
 
     def call_model(state: MessagesState) -> dict[str, list[BaseMessage]]:
-        response = model_with_tools.invoke(
+        model_with_relevant_tools = model.bind_tools(
+            _tools_for_messages(state["messages"])
+        )
+        response = model_with_relevant_tools.invoke(
             [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
         )
         return {"messages": [response]}
 
     builder = StateGraph(MessagesState)
     builder.add_node("assistant", call_model)
-    builder.add_node("tools", ToolNode(AGENT_TOOLS))
+    builder.add_node(
+        "tools",
+        ToolNode(AGENT_TOOLS, handle_tool_errors=_tool_error_message),
+    )
     builder.add_edge(START, "assistant")
     builder.add_conditional_edges(
         "assistant",
@@ -99,6 +111,51 @@ def _compiled_graph() -> CompiledStateGraph:
 
 def _thread_config(thread_id: str) -> dict[str, dict[str, str]]:
     return {"configurable": {"thread_id": thread_id}}
+
+
+def _tools_for_messages(messages: list[BaseMessage]) -> list[BaseTool]:
+    """Expose external APIs only when the current user turn asks for them."""
+    user_text = next(
+        (
+            _message_text(message).lower()
+            for message in reversed(messages)
+            if isinstance(message, HumanMessage)
+        ),
+        "",
+    )
+    selected: list[BaseTool] = [query_ski_resorts]
+    weather_terms = (
+        "wetter",
+        "wetterprognose",
+        "schneeprognose",
+        "vorhersage",
+        "temperatur",
+        "wind",
+        "sicht",
+        "gefriergrenze",
+        "morgen",
+        "wochenende",
+    )
+    bulletin_terms = (
+        "lawinenbulletin",
+        "lawinenlage",
+        "lawinenbericht",
+        "lawinenprognose",
+        "slf",
+    )
+    if any(term in user_text for term in weather_terms):
+        selected.append(get_weather_forecast)
+    if any(term in user_text for term in bulletin_terms):
+        selected.append(get_avalanche_bulletin)
+    return selected
+
+
+def _tool_error_message(error: Exception) -> str:
+    """Keep one unavailable data source from aborting the entire agent turn."""
+    return (
+        "Die Datenquelle ist vorübergehend nicht verfügbar. Fahre ohne dieses "
+        f"Tool fort und erfinde keine Daten. Technischer Typ: {type(error).__name__}."
+    )
 
 
 def _last_ai_text(messages: list[BaseMessage]) -> str:

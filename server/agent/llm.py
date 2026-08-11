@@ -23,6 +23,5 @@ def get_model() -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
         model=os.getenv("GEMINI_MODEL", DEFAULT_MODEL),
         google_api_key=api_key,
-        temperature=0.2,
         max_retries=2,
     )
