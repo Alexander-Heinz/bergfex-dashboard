@@ -25,8 +25,8 @@ WORKDIR /app
 COPY server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy server code
-COPY server/ .
+# Keep the Python package layout used by local development and tests.
+COPY server/ /app/server/
 
 # Copy built frontend from build stage
 COPY --from=build /app/dist /app/static
@@ -34,5 +34,5 @@ COPY --from=build /app/dist /app/static
 # Expose port (Render uses PORT env var, but 8080 is standard default)
 EXPOSE 8080
 
-# Run the server
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080"]
+# Render injects PORT. Keep 8080 as the local/container default.
+CMD ["sh", "-c", "uvicorn server.server:app --host 0.0.0.0 --port ${PORT:-8080}"]

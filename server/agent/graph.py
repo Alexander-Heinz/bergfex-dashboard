@@ -1,113 +1,137 @@
-import re
+"""Explicit LangGraph workflow for the ski-trip assistant."""
+
+from collections.abc import Iterator
+from functools import lru_cache
 from typing import Any
 
-from server.agent import tools
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.prebuilt import ToolNode, tools_condition
+
+from server.agent.llm import get_model
+from server.agent.tools import AGENT_TOOLS
+
+SYSTEM_PROMPT = """
+Du bist ein deutschsprachiger Ski-Trip-Datenagent. Antworte kompakt, konkret und
+kennzeichne Datenquellen sowie Zeitstände. Nutze query_ski_resorts zuerst, wenn
+es um Empfehlungen oder den Vergleich von Skigebieten geht. Reichere nur eine
+kleine Shortlist mit get_weather_forecast und – für Schweizer Koordinaten –
+get_avalanche_bulletin an. Der Shred Score wird von der bestehenden Datenpipeline
+berechnet; erfinde oder verändere ihn nicht.
+
+Wichtige Grenzen:
+- Es gibt noch kein Routing- oder Fahrzeit-Tool. Behaupte deshalb keine
+  Routenberechnung und sage transparent, wenn diese Daten fehlen.
+- Lawinenbulletins sind regional und ersetzen niemals lokale Beurteilung,
+  Sperrungen, Ausbildung oder Sicherheitsausrüstung.
+- Wenn eine Quelle keine Daten liefert, sage das klar und erfinde nichts.
+""".strip()
 
 
 class AgentGraph:
-    """Ski-trip agent graph with LLM reasoning and BigQuery tool fallback.
+    """Small façade around the compiled LangGraph workflow."""
 
-    Flow:
-    1. Parse user message for intent.
-    2. Execute BigQuery tool.
-    3. Query Gemini LLM, or fall back to deterministic response marked when quota is reached.
-    """
+    def __init__(self) -> None:
+        self.graph = _compiled_graph()
 
-    def _parse_min_snow(self, message: str) -> int:
-        """Extract a minimum snow depth in cm from the user message."""
-        m = re.search(r"(mehr als|>=|>)\s*(\d{1,3})\s*cm", message, re.IGNORECASE)
-        if m:
-            return int(m.group(2))
-        m2 = re.search(r"(\d{1,3})\s*cm", message, re.IGNORECASE)
-        if m2:
-            return int(m2.group(1))
-        return 0
-
-    def _format_answer(
-        self,
-        user_message: str,
-        tool_result: dict[str, Any],
-        is_quota_fallback: bool = True,
-    ) -> str:
-        """Build a plain-text answer from tool data (no LLM needed)."""
-        total = tool_result.get("total", 0)
-        resorts = tool_result.get("resorts", [])
-        min_snow = tool_result.get("min_snow_depth", 0)
-
-        header = ""
-        if is_quota_fallback:
-            header = "⚡ [Hinweis: Gemini-Tageslimit (Free Tier) erreicht – Automatische Antwort aus der BigQuery-Datenbank]\n\n"
-
-        if total == 0:
-            return (
-                header
-                + f"Ich habe keine Skigebiete mit mindestens {min_snow} cm Schnee "
-                f"in der Datenbank gefunden. Versuche es mit einer niedrigeren Schneehöhe."
-            )
-
-        lines = [
-            header + f"Ich habe {total} Skigebiet{'e' if total != 1 else ''} "
-            f"mit mindestens {min_snow} cm Schnee am Berg gefunden:"
-        ]
-        for r in resorts[:10]:
-            lines.append(f"• {r['name']}: {r['snowMountain']:.0f} cm")
-        if total > 10:
-            lines.append(f"… und {total - 10} weitere.")
-        return "\n".join(lines)
-
-    def run(self, message: str) -> dict[str, Any]:
-        min_snow = self._parse_min_snow(message)
-        tool_resp = tools.query_ski_resorts(min_snow_depth=min_snow, limit=10)
-
-        answer: str
-        is_quota_fallback = False
-        try:
-            from server.agent.llm import get_llm
-
-            llm = get_llm()
-            answer = llm.generate(message)
-        except (RuntimeError, ImportError, OSError) as e:
-            err_str = str(e).lower()
-            is_quota_fallback = any(
-                k in err_str for k in ["429", "quota", "resource_exhausted", "limit"]
-            )
-            print(
-                f"LLM generation failed ({e}), falling back instantly (is_quota={is_quota_fallback})."
-            )
-            answer = self._format_answer(
-                message, tool_resp, is_quota_fallback=is_quota_fallback
-            )
-
+    def run(self, message: str, thread_id: str) -> dict[str, Any]:
+        """Run one conversational turn and return the final answer."""
+        result = self.graph.invoke(
+            {"messages": [HumanMessage(content=message)]},
+            config=_thread_config(thread_id),
+        )
+        messages = result["messages"]
         return {
-            "answer": answer,
-            "tool_calls": 1,
-            "tool_result": tool_resp,
-            "is_quota_fallback": is_quota_fallback,
+            "answer": _last_ai_text(messages),
+            "tool_calls": _current_turn_tool_count(messages),
         }
 
-    def run_stream(self, message: str):
-        """Yield text chunks for the given query using Gemini streaming or instant marked fallback."""
-        min_snow = self._parse_min_snow(message)
-        tool_resp = tools.query_ski_resorts(min_snow_depth=min_snow, limit=10)
+    def run_stream(self, message: str, thread_id: str) -> Iterator[str]:
+        """Stream text from assistant nodes while LangGraph runs its tool loop."""
+        parts = self.graph.stream(
+            {"messages": [HumanMessage(content=message)]},
+            config=_thread_config(thread_id),
+            stream_mode="messages",
+            version="v2",
+        )
+        for part in parts:
+            if part.get("type") != "messages":
+                continue
+            chunk, metadata = part["data"]
+            if metadata.get("langgraph_node") != "assistant":
+                continue
+            text = _message_text(chunk)
+            if text:
+                yield text
 
-        yielded_any = False
-        is_quota_fallback = False
-        try:
-            from server.agent.llm import get_llm
 
-            llm = get_llm()
-            for chunk in llm.generate_stream(message):
-                if chunk:
-                    yielded_any = True
-                    yield chunk
-        except (RuntimeError, ImportError, OSError) as e:
-            err_str = str(e).lower()
-            is_quota_fallback = any(
-                k in err_str for k in ["429", "quota", "resource_exhausted", "limit"]
-            )
-            print(
-                f"LLM streaming failed ({e}), falling back instantly (is_quota={is_quota_fallback})."
-            )
+@lru_cache(maxsize=1)
+def _compiled_graph() -> CompiledStateGraph:
+    """Create one stateful ReAct graph per backend process."""
+    model_with_tools = get_model().bind_tools(AGENT_TOOLS)
 
-        if not yielded_any:
-            yield self._format_answer(message, tool_resp, is_quota_fallback=True)
+    def call_model(state: MessagesState) -> dict[str, list[BaseMessage]]:
+        response = model_with_tools.invoke(
+            [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
+        )
+        return {"messages": [response]}
+
+    builder = StateGraph(MessagesState)
+    builder.add_node("assistant", call_model)
+    builder.add_node("tools", ToolNode(AGENT_TOOLS))
+    builder.add_edge(START, "assistant")
+    builder.add_conditional_edges(
+        "assistant",
+        tools_condition,
+        {"tools": "tools", END: END},
+    )
+    builder.add_edge("tools", "assistant")
+    return builder.compile(checkpointer=InMemorySaver())
+
+
+def _thread_config(thread_id: str) -> dict[str, dict[str, str]]:
+    return {"configurable": {"thread_id": thread_id}}
+
+
+def _last_ai_text(messages: list[BaseMessage]) -> str:
+    for message in reversed(messages):
+        if isinstance(message, AIMessage):
+            text = _message_text(message)
+            if text:
+                return text
+    return "Keine Antwort erhalten."
+
+
+def _current_turn_tool_count(messages: list[BaseMessage]) -> int:
+    last_human_index = max(
+        (
+            index
+            for index, message in enumerate(messages)
+            if isinstance(message, HumanMessage)
+        ),
+        default=-1,
+    )
+    return sum(
+        isinstance(message, ToolMessage) for message in messages[last_human_index + 1 :]
+    )
+
+
+def _message_text(message: BaseMessage) -> str:
+    content = message.content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return ""

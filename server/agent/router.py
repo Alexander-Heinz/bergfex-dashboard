@@ -1,12 +1,20 @@
+import logging
 import os
+import re
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from server.agent.graph import AgentGraph
+from server.agent.llm import AgentConfigurationError
+
+logger = logging.getLogger(__name__)
 
 
 def get_dev_or_remote_address(request: Request):
@@ -26,48 +34,63 @@ limiter = Limiter(key_func=get_dev_or_remote_address)
 
 
 class AgentRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=4_000)
+    thread_id: str | None = None
 
 
 @router.post("", summary="Agent endpoint")
 @router.post("/", summary="Agent endpoint", include_in_schema=False)
 @limiter.limit("10/minute")
 async def agent_endpoint(request: Request, req: AgentRequest) -> dict[str, Any]:
-    """Minimal API endpoint that forwards the user's message into the agent graph.
-
-    Returns a small JSON structure with the answer and the number of tool calls.
-    """
-    graph = AgentGraph()
+    """Run one agent turn and preserve context under the supplied thread ID."""
+    thread_id = _thread_id(req.thread_id)
     try:
-        result = graph.run(req.message)
-    except ValueError as e:
-        # LLM key not configured
-        raise HTTPException(status_code=501, detail=str(e))
-    except (RuntimeError, ImportError, OSError):
-        raise HTTPException(status_code=500, detail="Internal agent error")
+        graph = AgentGraph()
+        result = await run_in_threadpool(graph.run, req.message, thread_id)
+    except AgentConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Agent request failed")
+        raise HTTPException(status_code=500, detail="Internal agent error") from exc
 
     return {
         "answer": result.get("answer", ""),
         "tool_calls": result.get("tool_calls", 0),
-        "is_quota_fallback": result.get("is_quota_fallback", False),
+        "thread_id": thread_id,
     }
 
 
 @router.post("/stream", summary="Streaming agent endpoint")
 @limiter.limit("15/minute")
 async def agent_stream_endpoint(request: Request, req: AgentRequest):
-    """Streaming API endpoint that streams Gemini chunks incrementally via SSE."""
+    """Stream one LangGraph turn as server-sent events."""
     import json
 
-    from fastapi.responses import StreamingResponse
+    thread_id = _thread_id(req.thread_id)
 
-    async def event_generator():
-        graph = AgentGraph()
+    def event_generator():
         try:
-            for chunk in graph.run_stream(req.message):
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
-        except (RuntimeError, ValueError, ImportError, OSError) as e:
-            yield f"data: {json.dumps({'text': f'Fehler: {e}'})}\n\n"
+            graph = AgentGraph()
+            for chunk in graph.run_stream(req.message, thread_id):
+                yield f"data: {json.dumps({'text': chunk}, ensure_ascii=False)}\n\n"
+        except AgentConfigurationError as exc:
+            yield f"data: {json.dumps({'text': f'Konfigurationsfehler: {exc}'}, ensure_ascii=False)}\n\n"
+        except Exception:
+            logger.exception("Streaming agent request failed")
+            yield 'data: {"text":"Interner Agentenfehler."}\n\n'
         yield "data: [DONE]\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"X-Agent-Thread-ID": thread_id},
+    )
+
+
+def _thread_id(value: str | None) -> str:
+    """Accept compact opaque IDs and generate one when the client has none."""
+    if value is None:
+        return str(uuid.uuid4())
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value):
+        raise HTTPException(status_code=422, detail="Invalid thread_id")
+    return value
