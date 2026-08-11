@@ -245,6 +245,7 @@ class ResortResponse(BaseModel):
     availableCountries: list[str]
     availableRegions: dict  # {country: [region1, region2, ...]}"
 
+
 @app.get("/api/resorts", response_model=ResortResponse)
 @limiter.limit("60/minute")  # Rate limit: 60 requests per minute per IP
 async def get_resorts(request: Request):  # Request object needed for slowapi
@@ -389,10 +390,10 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
                 regions_by_country[c] = set()
             if reg and reg != "Unbekannt":
                 regions_by_country[c].add(reg)
-        
+
         available_countries = sorted(countries_set)
         available_regions = {c: sorted(regs) for c, regs in regions_by_country.items()}
-        
+
         return {
             "totalCount": total_count,
             "openCount": open_count,
@@ -412,7 +413,7 @@ async def get_resorts(request: Request):  # Request object needed for slowapi
             "availableCountries": available_countries,
             "availableRegions": available_regions,
         }
-        
+
     except (google_exceptions.GoogleAPIError, ValueError, TypeError) as exc:
         print(f"Error fetching data: {exc}")  # Log internal detail
         raise HTTPException(status_code=500, detail="Internal Server Error")
@@ -509,7 +510,7 @@ async def get_resort_history(resort_id: str, request: Request):
                 }
             )
         return history
-        
+
     except (google_exceptions.GoogleAPIError, ValueError, TypeError) as exc:
         print(f"Error fetching history for {resort_id}: {exc}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
