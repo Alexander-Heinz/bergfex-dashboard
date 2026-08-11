@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import time
 from collections.abc import Sequence
 from functools import lru_cache
 from typing import Any
@@ -21,8 +22,10 @@ DATASET_ID = os.getenv("BQ_DATASET_ID", "bergfex_data")
 VIEW_ID = os.getenv("BQ_VIEW_ID", "vw_latest_snow_with_shred_score")
 
 OPEN_METEO_DWD_URL = "https://api.open-meteo.com/v1/dwd-icon"
+OPEN_METEO_CUSTOMER_URL = "https://customer-api.open-meteo.com/v1/dwd-icon"
 SLF_BULLETIN_URL = "https://aws.slf.ch/api/bulletin/caaml/v4/{language}/geojson"
 MAX_LIMIT = 30
+WEATHER_CACHE_SECONDS = 15 * 60
 
 
 @tool
@@ -134,24 +137,34 @@ def get_weather_forecast(
     """
     latitude, longitude = _validated_coordinates(latitude, longitude)
     forecast_days = _bounded_int(forecast_days, minimum=1, maximum=7)
-    params: dict[str, Any] = {
-        "latitude": latitude,
-        "longitude": longitude,
-        "timezone": "auto",
-        "forecast_days": forecast_days,
-        "daily": (
-            "temperature_2m_max,temperature_2m_min,precipitation_probability_max,"
-            "precipitation_sum,snowfall_sum,wind_gusts_10m_max,sunshine_duration"
-        ),
-        "hourly": "snow_depth,visibility,freezing_level_height",
-    }
-    if elevation is not None:
-        params["elevation"] = float(elevation)
+    elevation = float(elevation) if elevation is not None else None
+    source_url = _open_meteo_url()
+    try:
+        payload = _get_weather_payload(
+            round(latitude, 5),
+            round(longitude, 5),
+            elevation,
+            forecast_days,
+            int(time.monotonic() // WEATHER_CACHE_SECONDS),
+        )
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        return {
+            "provider": "Open-Meteo DWD ICON",
+            "source": source_url,
+            "available": False,
+            "error": "rate_limited" if status_code == 429 else "upstream_error",
+            "statusCode": status_code,
+            "message": (
+                "Die Wetterquelle ist gerade gedrosselt oder nicht verfügbar. "
+                "Bitte ohne Wetterdaten fortfahren und später erneut versuchen."
+            ),
+        }
 
-    payload = _get_json(OPEN_METEO_DWD_URL, params=params)
     return {
         "provider": "Open-Meteo DWD ICON",
-        "source": OPEN_METEO_DWD_URL,
+        "source": source_url,
+        "available": True,
         "coordinates": {"latitude": latitude, "longitude": longitude},
         "elevationM": payload.get("elevation"),
         "timezone": payload.get("timezone"),
@@ -219,12 +232,54 @@ def _get_bigquery_client() -> bigquery.Client:
 def _get_json(url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """Fetch one public JSON data source with a bounded timeout."""
     with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-        response = client.get(url, params=params)
+        response = client.get(
+            url,
+            params=params,
+            headers={"User-Agent": "bergfex-dashboard/0.2.1"},
+        )
         response.raise_for_status()
         payload = response.json()
     if not isinstance(payload, dict):
         raise TypeError(f"Expected a JSON object from {url}")
     return payload
+
+
+@lru_cache(maxsize=256)
+def _get_weather_payload(
+    latitude: float,
+    longitude: float,
+    elevation: float | None,
+    forecast_days: int,
+    cache_bucket: int,
+) -> dict[str, Any]:
+    """Cache equivalent forecasts briefly to reduce public API traffic."""
+    del cache_bucket  # The time bucket exists only to expire cached entries.
+    params: dict[str, Any] = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "timezone": "auto",
+        "forecast_days": forecast_days,
+        "daily": (
+            "temperature_2m_max,temperature_2m_min,precipitation_probability_max,"
+            "precipitation_sum,snowfall_sum,wind_gusts_10m_max,sunshine_duration"
+        ),
+        "hourly": "snow_depth,visibility,freezing_level_height",
+    }
+    if elevation is not None:
+        params["elevation"] = elevation
+    api_key = os.getenv("OPEN_METEO_API_KEY")
+    if api_key:
+        params["apikey"] = api_key
+    return _get_json(_open_meteo_url(), params=params)
+
+
+def _open_meteo_url() -> str:
+    """Use reserved Open-Meteo capacity when an optional customer key exists."""
+    return (
+        OPEN_METEO_CUSTOMER_URL
+        if os.getenv("OPEN_METEO_API_KEY")
+        else OPEN_METEO_DWD_URL
+    )
 
 
 def _resort_from_row(row: Any) -> dict[str, Any]:

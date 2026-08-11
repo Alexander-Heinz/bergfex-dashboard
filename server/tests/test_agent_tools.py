@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi import HTTPException
 
@@ -11,6 +12,32 @@ from server.agent.tools import (
     _daily_weather,
     _geometry_contains,
 )
+
+
+def test_weather_rate_limit_returns_a_tool_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A throttled public API must not terminate the LangGraph stream."""
+    request = httpx.Request("GET", tools.OPEN_METEO_DWD_URL)
+    response = httpx.Response(429, request=request)
+    error = httpx.HTTPStatusError(
+        "rate limited",
+        request=request,
+        response=response,
+    )
+
+    def raise_rate_limit(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(tools, "_get_weather_payload", raise_rate_limit)
+
+    result = tools.get_weather_forecast.invoke(
+        {"latitude": 46.4, "longitude": 7.7, "forecast_days": 3}
+    )
+
+    assert result["available"] is False
+    assert result["error"] == "rate_limited"
+    assert result["statusCode"] == 429
 
 
 def test_resort_tool_uses_parameters_and_maps_rows(
