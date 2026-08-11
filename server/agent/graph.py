@@ -21,6 +21,7 @@ from server.agent.llm import get_model
 from server.agent.tools import (
     AGENT_TOOLS,
     get_avalanche_bulletin,
+    get_driving_route,
     get_weather_forecast,
     query_ski_resorts,
 )
@@ -32,7 +33,9 @@ es um Empfehlungen oder den Vergleich von Skigebieten geht. Wetter- und
 Lawinenbulletin-Tools werden nur bei einer ausdrücklichen Nutzerfrage danach
 angeboten. Der Shred Score wird von der bestehenden Datenpipeline berechnet;
 erfinde oder verändere ihn nicht. Beachte qualityNotes und sharedMetricGroups
-aus dem Skigebiets-Tool zwingend.
+aus dem Skigebiets-Tool zwingend. Es gibt ein standortgenaues Wetter-Tool und
+ein Fahrtzeit-Tool. Behaupte nicht, diese seien generell nicht integriert,
+sondern rufe sie bei einer passenden Nutzerfrage auf.
 
 Wichtige Grenzen:
 - Bei Fragen nach viel Neuschnee nutze min_new_snow mit mindestens 1 cm. Gibt
@@ -45,8 +48,17 @@ Wichtige Grenzen:
   identischen Messwerten, statt sie als unabhängige Powder-Spots zu zählen.
 - Die Daten enthalten keine belastbare Familienfreundlichkeitsbewertung. Nenne
   solche Treffer nur Kandidaten und keine verifizierten Familienempfehlungen.
-- Es gibt noch kein Routing- oder Fahrzeit-Tool. Behaupte deshalb keine
-  Routenberechnung und sage transparent, wenn diese Daten fehlen.
+- Fahrtzeiten von openrouteservice sind Näherungswerte ohne Live-Verkehr,
+  Pausen oder Wetterlage. Wenn das Tool nicht konfiguriert ist oder keine Route
+  liefert, darfst du für bekannte Start- und Zielorte ersatzweise eine grobe
+  Spanne aus deinem Weltwissen nennen. Kennzeichne sie wörtlich als
+  "Grobe LLM-Schätzung ohne Routing und Live-Verkehr". Nenne niemals eine
+  exakte Zeit und empfehle die Prüfung mit einem Navigationsdienst. Sind Ort
+  oder Strecke unklar, verzichte auf die Schätzung und frage nach.
+- Nenne Quellen nutzerfreundlich: Bergfex-Schneedaten, den jeweiligen
+  Wetteranbieter, SLF oder openrouteservice/OpenStreetMap. Erwähne niemals
+  interne Datenbanken, Projekt-IDs, Dataset-/View-Namen oder andere
+  Infrastrukturdetails.
 - Lawinenbulletins sind regional und ersetzen niemals lokale Beurteilung,
   Sperrungen, Ausbildung oder Sicherheitsausrüstung.
 - Wenn eine Quelle keine Daten liefert, sage das klar und erfinde nichts.
@@ -154,8 +166,21 @@ def _tools_for_messages(messages: list[BaseMessage]) -> list[BaseTool]:
         "lawinenprognose",
         "slf",
     )
+    route_terms = (
+        "fahrtzeit",
+        "fahrzeit",
+        "anfahrt",
+        "entfernung",
+        "route",
+        "routing",
+        "ab münchen",
+        "von münchen",
+        "aus münchen",
+    )
     if any(term in user_text for term in weather_terms):
         selected.append(get_weather_forecast)
+    if any(term in user_text for term in route_terms):
+        selected.append(get_driving_route)
     if any(term in user_text for term in bulletin_terms):
         selected.append(get_avalanche_bulletin)
     return selected

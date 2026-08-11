@@ -166,8 +166,65 @@ def test_resort_tool_uses_parameters_and_maps_rows(
     )
 
     assert "OR TRUE" not in fake_client.query_text
+    assert result["source"] == "Bergfex-Schneedaten"
     assert result["resorts"][0]["snowMountainCm"] == 120.0
     assert result["resorts"][0]["shredScore"] == 87.5
+    assert result["resorts"][0]["dataTimestamp"] == "15.01.2026, 01:00 Uhr"
+
+
+def test_driving_route_returns_user_friendly_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTESERVICE_API_KEY", "test-key")
+    monkeypatch.setattr(
+        tools,
+        "_geocode_place",
+        lambda *args, **kwargs: {
+            "label": "München, Bayern, Deutschland",
+            "latitude": 48.137,
+            "longitude": 11.575,
+        },
+    )
+    monkeypatch.setattr(
+        tools,
+        "_get_route_payload",
+        lambda *args, **kwargs: {
+            "features": [
+                {"properties": {"summary": {"distance": 210_500, "duration": 9_000}}}
+            ]
+        },
+    )
+
+    result = tools.get_driving_route.invoke(
+        {
+            "origin": "München",
+            "destination_latitude": 47.1,
+            "destination_longitude": 11.7,
+        }
+    )
+
+    assert result["available"] is True
+    assert result["distanceKm"] == 210.5
+    assert result["durationMinutes"] == 150
+    assert result["trafficIncluded"] is False
+
+
+def test_driving_route_reports_missing_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENROUTESERVICE_API_KEY", raising=False)
+
+    result = tools.get_driving_route.invoke(
+        {
+            "origin": "München",
+            "destination_latitude": 47.1,
+            "destination_longitude": 11.7,
+        }
+    )
+
+    assert result["available"] is False
+    assert result["error"] == "configuration_missing"
+    assert "LLM-Zeitspanne" in result["fallbackGuidance"]
 
 
 def test_polygon_matching_supports_holes() -> None:
