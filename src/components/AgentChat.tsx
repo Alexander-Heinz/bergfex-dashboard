@@ -21,7 +21,7 @@ interface Message {
 
 const EXAMPLE_QUERIES = [
   "🇦🇹 Suche ein offenes Gebiet in Österreich mit ≥ 50 cm Schnee",
-  "🌨️ Vergleiche die Wetterprognose der zwei besten Powder-Spots",
+  "🌨️ Wie werden morgen Neuschnee, Wind und Sicht im besten offenen Powder-Gebiet?",
   "⚡ Zeige Top Powder-Spots mit viel Neuschnee & hohem Shred Score",
   "🏔️ Schweizer Gebiete mit geringer Lawinenwarnstufe und aktuellem Bulletin",
 ];
@@ -38,7 +38,7 @@ export const AgentChat = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "agent",
-      text: "Hallo! Ich bin dein Ski-Trip-Datenagent 🎿 Ich vergleiche Skigebiete und kann ausgewählte Treffer mit DWD-Wetter sowie Schweizer SLF-Lawinenbulletins anreichern.",
+      text: "Hallo! Ich bin dein Ski-Trip-Datenagent 🎿 Ich vergleiche Skigebiete und kann ausgewählte Treffer mit Wetterprognosen sowie Schweizer SLF-Lawinenbulletins anreichern.",
     },
   ]);
   const [isLoading, setIsLoading] = useState(false);
@@ -215,9 +215,6 @@ export const AgentChat = () => {
               <div className="flex items-center gap-2">
                 <span className="font-bold text-sm tracking-wide">
                   Ski-Trip Assistant
-                </span>
-                <span className="text-[10px] font-semibold tracking-wider uppercase opacity-90 bg-white/20 px-2 py-0.5 rounded-full">
-                  LangGraph + Gemini
                 </span>
               </div>
               <p className="text-[11px] opacity-80 font-normal">

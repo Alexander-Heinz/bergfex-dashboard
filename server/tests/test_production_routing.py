@@ -14,6 +14,11 @@ def test_agent_stream_post_route_is_registered(monkeypatch) -> None:
     openapi_paths = backend.app.openapi()["paths"]
 
     assert "post" in openapi_paths["/api/agent/stream"]
+    assert any(
+        getattr(route, "path", None) == "/"
+        and "HEAD" in getattr(route, "methods", set())
+        for route in backend.app.routes
+    )
 
 
 def test_docker_preserves_the_server_package_layout() -> None:

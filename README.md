@@ -36,6 +36,22 @@ Analyse der Schneehöhen-Entwicklung über die Zeit, um Trends abzuleiten.
 
 ![Verlaufsansicht](docs/screenshots/Verlaufsansicht.gif)
 
+### 4. Agentische Skigebiets-Suche 🤖
+Der Chat ist als echter LangGraph-Workflow umgesetzt. Gemini entscheidet anhand
+der Frage, welche typisierten LangChain-Tools aufgerufen werden:
+
+- **BigQuery Resortsuche**: kontrollierte, parametrisierte Abfrage für Schnee,
+  Öffnungsstatus, Lawinenwarnstufe und den bestehenden Shred Score.
+- **DWD-Wetter via Open-Meteo**: Prognose für Tal- oder Bergkoordinaten ohne
+  zusätzlichen API-Key.
+- **SLF-Lawinenbulletin**: offizielles Schweizer CAAML/GeoJSON-Bulletin per
+  Punkt-in-Polygon-Zuordnung.
+- **Gesprächskontext**: LangGraph hält den Verlauf pro Browser-Thread im Speicher
+  des laufenden Backend-Prozesses.
+
+Eine Fahrzeit- oder Routingquelle ist noch nicht integriert; der Agent weist auf
+diese Grenze hin, statt Fahrzeiten zu erfinden.
+
 
 ---
 
@@ -49,7 +65,8 @@ Analyse der Schneehöhen-Entwicklung über die Zeit, um Trends abzuleiten.
 - **Charts**: Recharts
 
 ### Backend & Infrastructure
-- **API**: FastAPI (Python 3.10+)
+- **API**: FastAPI (Python 3.11+)
+- **Agent**: LangChain + LangGraph + Gemini
 - **Data Warehouse**: Google BigQuery
 - **Datenbeschaffung**: Automatisierter Scraper mit CI/CD & automatisierten Tests (Bergfex ETL-Pipeline, siehe [bergfex-scraper](https://github.com/bergfex/bergfex-scraper))
 - **Provisionierung**: Terraform (Infrastructure as Code)
@@ -69,7 +86,29 @@ cd bergfex-dashboard
 ./start-dev.sh
 ```
 
-Weitere Details zum lokalen Setup und der Architektur findest du in [LOCAL_DEVELOPMENT.md](file:///Users/alexanderheinz/Projekte/bergfex-dashboard/LOCAL_DEVELOPMENT.md).
+Weitere Details zum lokalen Setup und der Architektur findest du in [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md).
+
+## Render-Konfiguration
+
+Lege diese Werte im Render-Dashboard unter **Environment** an. Secrets nicht in
+Git committen.
+
+| Variable | Pflicht | Inhalt |
+| :--- | :---: | :--- |
+| `GEMINI_API_KEY` | Ja, für den Agenten | API-Key aus Google AI Studio |
+| `GOOGLE_CREDENTIALS_JSON` | Ja, für BigQuery | Vollständiges Service-Account-JSON als einzeiliger Secret-Wert |
+| `GCP_PROJECT_ID` | Empfohlen | Standard: `bergfex-481612` |
+| `BQ_DATASET_ID` | Optional | Standard: `bergfex_data` |
+| `BQ_VIEW_ID` | Optional | Standard: `vw_latest_snow_with_shred_score` |
+| `GEMINI_MODEL` | Optional | Standard: `gemini-3.5-flash-lite` |
+| `OPEN_METEO_API_KEY` | Optional | Customer-Key für dedizierte Open-Meteo-Kapazität; ohne Key wird die gedrosselte freie API verwendet |
+| `WEATHER_USER_AGENT` | Optional | Identifikation für den MET-Norway-Fallback; Standard verweist auf die Render-App |
+| `FRONTEND_URL` | Empfohlen | Öffentliche Render-URL, z. B. `https://bergfex-dashboard.onrender.com` |
+| `ENVIRONMENT` | Ja in Produktion | `production` aktiviert das Agenten-Rate-Limit |
+
+`PORT` wird von Render automatisch gesetzt. Bei einem Open-Meteo-Fehler nutzt
+der Agent MET Norway als reduzierte Wetterquelle. Open-Meteo Free, MET Norway
+und das öffentliche SLF-Bulletin benötigen keinen API-Key.
 
 ---
 

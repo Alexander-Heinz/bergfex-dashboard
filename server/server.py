@@ -3,7 +3,7 @@ import os
 import re
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from google.api_core import exceptions as google_exceptions
 from google.cloud import bigquery
@@ -514,6 +514,12 @@ async def get_resort_history(resort_id: str, request: Request):
     except (google_exceptions.GoogleAPIError, ValueError, TypeError) as exc:
         print(f"Error fetching history for {resort_id}: {exc}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
+@app.head("/", include_in_schema=False)
+async def healthcheck() -> Response:
+    """Let platform health checks probe the service without downloading the SPA."""
+    return Response(status_code=200)
 
 
 # Catch-all route for SPA (must be last)
