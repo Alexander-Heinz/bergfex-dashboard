@@ -42,16 +42,14 @@ der Frage, welche typisierten LangChain-Tools aufgerufen werden:
 
 - **BigQuery Resortsuche**: kontrollierte, parametrisierte Abfrage für Schnee,
   Öffnungsstatus, Lawinenwarnstufe und den bestehenden Shred Score.
-- **DWD-Wetter via Open-Meteo**: Prognose für Tal- oder Bergkoordinaten ohne
-  zusätzlichen API-Key.
+- **Wetterprognose**: DWD-Wetter via Open-Meteo mit MET Norway als öffentlichem
+  Fallback.
+- **Fahrtzeit**: ungefähre Autorouten via openrouteservice und OpenStreetMap;
+  dafür ist ein kostenloser API-Key erforderlich.
 - **SLF-Lawinenbulletin**: offizielles Schweizer CAAML/GeoJSON-Bulletin per
   Punkt-in-Polygon-Zuordnung.
 - **Gesprächskontext**: LangGraph hält den Verlauf pro Browser-Thread im Speicher
   des laufenden Backend-Prozesses.
-
-Eine Fahrzeit- oder Routingquelle ist noch nicht integriert; der Agent weist auf
-diese Grenze hin, statt Fahrzeiten zu erfinden.
-
 
 ---
 
@@ -103,6 +101,7 @@ Git committen.
 | `GEMINI_MODEL` | Optional | Standard: `gemini-3.5-flash-lite` |
 | `OPEN_METEO_API_KEY` | Optional | Customer-Key für dedizierte Open-Meteo-Kapazität; ohne Key wird die gedrosselte freie API verwendet |
 | `WEATHER_USER_AGENT` | Optional | Identifikation für den MET-Norway-Fallback; Standard verweist auf die Render-App |
+| `OPENROUTESERVICE_API_KEY` | Optional | API-Key für Fahrtzeit- und Entfernungsschätzungen; kostenlos im openrouteservice-Dashboard erhältlich |
 | `FRONTEND_URL` | Empfohlen | Öffentliche Render-URL, z. B. `https://bergfex-dashboard.onrender.com` |
 | `ENVIRONMENT` | Ja in Produktion | `production` aktiviert das Agenten-Rate-Limit |
 
